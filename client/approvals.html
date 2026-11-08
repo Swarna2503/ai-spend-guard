@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pending Approvals</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 14px; margin: 12px 0; }
+    .reason { color: #a33; }
+    button { margin-right: 8px; padding: 8px 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Pending approvals</h1>
+  <div id="list">Loading...</div>
+  <script>
+    async function act(id, action) {
+      await fetch(`/api/requests/${id}/${action}`, { method: "POST" });
+      load();
+    }
+
+    async function load() {
+      const res = await fetch("/api/requests");
+      const all = await res.json();
+      const pending = all.filter((r) => r.status === "pending");
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      if (pending.length === 0) {
+        list.textContent = "Nothing waiting for approval.";
+        return;
+      }
+      for (const r of pending) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const title = document.createElement("div");
+        title.textContent = `${r.site} wants $${r.price}`;
+        title.style.fontWeight = "bold";
+        const desc = document.createElement("div");
+        desc.textContent = r.description || "";
+        const reason = document.createElement("div");
+        reason.className = "reason";
+        reason.textContent = `Blocked because: ${r.reason}`;
+        const approve = document.createElement("button");
+        approve.textContent = "Approve and pay";
+        approve.onclick = () => act(r.id, "approve");
+        const deny = document.createElement("button");
+        deny.textContent = "Deny";
+        deny.onclick = () => act(r.id, "deny");
+        card.append(title, desc, reason, document.createElement("br"), approve, deny);
+        list.append(card);
+      }
+    }
+
+    load();
+    setInterval(load, 3000);
+  </script>
+</body>
+</html>

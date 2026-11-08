@@ -260,6 +260,20 @@ async function chargeVault(amount) {
   return { ok: data.status === "COMPLETED" && !!captureId, status: data.status, captureId };
 }
 
+const PENDING_PATH = "./data/pending.json";
+
+function readPending() {
+  try {
+    return JSON.parse(fs.readFileSync(PENDING_PATH, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writePending(list) {
+  fs.writeFileSync(PENDING_PATH, JSON.stringify(list, null, 2));
+}
+
 app.post("/api/pay", async (req, res) => {
   const { site, price, description } = req.body ?? {};
   const priceCents = Math.round(Number(price) * 100);
@@ -276,10 +290,14 @@ app.post("/api/pay", async (req, res) => {
   };
 
   const check = checkRules({ site, priceCents });
-  if (!check.allowed) {
-    appendLog({ ...entry, decision: "blocked", reason: check.reason });
-    console.log(`BLOCKED ${site} ${entry.price}: ${check.reason}`);
-    return res.status(403).json({ decision: "blocked", reason: check.reason });
+    if (!check.allowed) {
+    const request = { id: `req-${Date.now()}`, ...entry, reason: check.reason, status: "pending" };
+    const pending = readPending();
+    pending.push(request);
+    writePending(pending);
+    appendLog({ ...entry, decision: "needs approval", reason: check.reason, requestId: request.id });
+    console.log(`PENDING ${site} ${entry.price}: ${check.reason} (${request.id})`);
+    return res.status(202).json({ decision: "pending", requestId: request.id, reason: check.reason });
   }
 
   try {
@@ -295,6 +313,69 @@ app.post("/api/pay", async (req, res) => {
     console.error("Pay failed:", err);
     appendLog({ ...entry, decision: "failed", reason: err.message });
     res.status(500).json({ decision: "failed", reason: err.message });
+  }
+});
+
+app.get("/api/requests", (req, res) => {
+  res.json(readPending());
+});
+
+app.get("/api/requests/:id", (req, res) => {
+  const request = readPending().find((r) => r.id === req.params.id);
+  if (!request) return res.status(404).json({ error: "No such request" });
+  res.json(request);
+});
+
+app.post("/api/requests/:id/:action", async (req, res) => {
+  const { id, action } = req.params;
+  if (!["approve", "deny"].includes(action)) {
+    return res.status(400).json({ error: "Action must be approve or deny" });
+  }
+  const pending = readPending();
+  const request = pending.find((r) => r.id === id);
+  if (!request) return res.status(404).json({ error: "No such request" });
+  if (request.status !== "pending") {
+    return res.status(409).json({ error: `Already ${request.status}` });
+  }
+
+  const base = {
+    time: new Date().toISOString(),
+    site: request.site,
+    description: request.description,
+    price: request.price,
+    priceCents: request.priceCents,
+    requestId: id,
+  };
+
+  if (action === "deny") {
+    request.status = "denied";
+    writePending(pending);
+    appendLog({ ...base, decision: "denied", reason: "Owner denied" });
+    console.log(`DENIED ${request.site} ${request.price} (${id})`);
+    return res.json(request);
+  }
+
+  request.status = "charging";
+  writePending(pending);
+  try {
+    const result = await chargeVault(request.price);
+    if (!result.ok) {
+      request.status = "failed";
+      writePending(pending);
+      appendLog({ ...base, decision: "failed", reason: `PayPal status ${result.status}` });
+      return res.status(502).json(request);
+    }
+    request.status = "approved";
+    request.captureId = result.captureId;
+    writePending(pending);
+    appendLog({ ...base, decision: "paid", reason: "Approved by owner", captureId: result.captureId });
+    console.log(`APPROVED ${request.site} ${request.price}: ${result.captureId}`);
+    res.json(request);
+  } catch (err) {
+    request.status = "failed";
+    writePending(pending);
+    appendLog({ ...base, decision: "failed", reason: err.message });
+    res.status(500).json(request);
   }
 });
 

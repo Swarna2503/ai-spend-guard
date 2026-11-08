@@ -2,6 +2,19 @@ import fetch from "node-fetch";
 
 const PAYWALL = "http://localhost:9000";
 const GUARD = "http://localhost:8888";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForDecision(requestId) {
+  for (let i = 0; i < 60; i++) {
+    const res = await fetch(`${GUARD}/api/requests/${requestId}`);
+    const request = await res.json();
+    if (request.status !== "pending" && request.status !== "charging") {
+      return request;
+    }
+    await sleep(2000);
+  }
+  return { status: "timed out" };
+}
 
 async function getArticle(site) {
   const url = `${PAYWALL}/${site}/article`;
@@ -27,13 +40,26 @@ async function getArticle(site) {
   });
   const pay = await payRes.json();
 
-  if (pay.decision !== "paid") {
-    console.log(`Guard said NO: ${pay.reason}`);
+  let captureId;
+  if (pay.decision === "paid") {
+    captureId = pay.captureId;
+    console.log(`Guard paid automatically. Capture ID: ${captureId}`);
+  } else if (pay.decision === "pending") {
+    console.log(`Guard paused this: ${pay.reason}`);
+    console.log(`Waiting for owner at ${GUARD}/approvals.html ...`);
+    const final = await waitForDecision(pay.requestId);
+    if (final.status !== "approved") {
+      console.log(`Owner decision: ${final.status}. Skipping this article.`);
+      return;
+    }
+    captureId = final.captureId;
+    console.log(`Owner approved. Capture ID: ${captureId}`);
+  } else {
+    console.log(`Guard refused: ${pay.reason || pay.error}`);
     return;
   }
-  console.log(`Guard paid. Capture ID: ${pay.captureId}`);
 
-  res = await fetch(url, { headers: { "X-Payment-Proof": pay.captureId } });
+  res = await fetch(url, { headers: { "X-Payment-Proof": captureId } });
   const body = await res.json();
   console.log(`Paywall answered ${res.status}:`, body);
 }
