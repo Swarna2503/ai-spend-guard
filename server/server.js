@@ -1,3 +1,4 @@
+import fs from "fs";
 import express from "express";
 import fetch from "node-fetch";
 import "dotenv/config";
@@ -188,29 +189,112 @@ app.get("/", async (req, res) => {
   }
 });
 
-app.post("/api/charge", async (req, res) => {
+const LOG_PATH = "./data/log.json";
+
+const RULES = {
+  maxPerItemCents: 10,
+  dailyBudgetCents: 200,
+  approvedSites: ["fair", "greedy"],
+};
+
+function readLog() {
   try {
-    const { amount } = req.body;
-    const accessToken = await generateAccessToken();
-    const response = await fetch(`${base}/v2/checkout/orders`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        "PayPal-Request-Id": `charge-${Date.now()}`,
-      },
-      body: JSON.stringify({
-        intent: "CAPTURE",
-        purchase_units: [{ amount: { currency_code: "USD", value: amount } }],
-        payment_source: { paypal: { vault_id: process.env.PAYPAL_VAULT_ID } },
-      }),
-    });
-    const data = await response.json();
-    console.log("Charge result:", response.status, data.status);
-    res.status(response.status).json(data);
+    return JSON.parse(fs.readFileSync(LOG_PATH, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function appendLog(entry) {
+  const log = readLog();
+  log.push(entry);
+  fs.writeFileSync(LOG_PATH, JSON.stringify(log, null, 2));
+}
+
+function spentTodayCents() {
+  const today = new Date().toISOString().slice(0, 10);
+  return readLog()
+    .filter((e) => e.decision === "paid" && e.time.startsWith(today))
+    .reduce((sum, e) => sum + e.priceCents, 0);
+}
+
+const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+function checkRules({ site, priceCents }) {
+  if (!RULES.approvedSites.includes(site)) {
+    return { allowed: false, reason: `Site "${site}" is not on the approved list` };
+  }
+  if (priceCents > RULES.maxPerItemCents) {
+    return {
+      allowed: false,
+      reason: `Price ${dollars(priceCents)} exceeds per-item limit of ${dollars(RULES.maxPerItemCents)}`,
+    };
+  }
+  const spent = spentTodayCents();
+  if (spent + priceCents > RULES.dailyBudgetCents) {
+    return {
+      allowed: false,
+      reason: `Would exceed daily budget: ${dollars(spent)} of ${dollars(RULES.dailyBudgetCents)} already spent`,
+    };
+  }
+  return { allowed: true };
+}
+
+async function chargeVault(amount) {
+  const accessToken = await generateAccessToken();
+  const response = await fetch(`${base}/v2/checkout/orders`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "PayPal-Request-Id": `charge-${Date.now()}`,
+    },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [{ amount: { currency_code: "USD", value: amount } }],
+      payment_source: { paypal: { vault_id: process.env.PAYPAL_VAULT_ID } },
+    }),
+  });
+  const data = await response.json();
+  const captureId = data?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+  return { ok: data.status === "COMPLETED" && !!captureId, status: data.status, captureId };
+}
+
+app.post("/api/pay", async (req, res) => {
+  const { site, price, description } = req.body ?? {};
+  const priceCents = Math.round(Number(price) * 100);
+  if (!site || !Number.isFinite(priceCents) || priceCents <= 0) {
+    return res.status(400).json({ error: "Need a site and a positive price" });
+  }
+
+  const entry = {
+    time: new Date().toISOString(),
+    site,
+    description,
+    price: (priceCents / 100).toFixed(2),
+    priceCents,
+  };
+
+  const check = checkRules({ site, priceCents });
+  if (!check.allowed) {
+    appendLog({ ...entry, decision: "blocked", reason: check.reason });
+    console.log(`BLOCKED ${site} ${entry.price}: ${check.reason}`);
+    return res.status(403).json({ decision: "blocked", reason: check.reason });
+  }
+
+  try {
+    const result = await chargeVault(entry.price);
+    if (!result.ok) {
+      appendLog({ ...entry, decision: "failed", reason: `PayPal status ${result.status}` });
+      return res.status(502).json({ decision: "failed", reason: `PayPal status ${result.status}` });
+    }
+    appendLog({ ...entry, decision: "paid", reason: "Within all rules", captureId: result.captureId });
+    console.log(`PAID ${site} ${entry.price}: ${result.captureId}`);
+    res.json({ decision: "paid", captureId: result.captureId });
   } catch (err) {
-    console.error("Charge failed:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Pay failed:", err);
+    appendLog({ ...entry, decision: "failed", reason: err.message });
+    res.status(500).json({ decision: "failed", reason: err.message });
   }
 });
 
