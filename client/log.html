@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Spending Log</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 16px; }
+    nav a { margin-right: 16px; }
+    .summary { background: #f4f4f4; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+    .paid { color: #1a7f37; font-weight: bold; }
+    .blocked, .denied, .failed { color: #c62828; font-weight: bold; }
+    .needs-approval { color: #b26a00; font-weight: bold; }
+    .mono { font-family: monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <nav><a href="/log.html">Spending log</a><a href="/approvals.html">Pending approvals</a></nav>
+  <h1>Spending log</h1>
+  <div class="summary" id="summary">Loading...</div>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Site</th><th>Price</th><th>Decision</th><th>Reason</th><th>Capture ID</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <script>
+    const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+    function cell(text, className) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      if (className) td.className = className;
+      return td;
+    }
+
+    async function load() {
+      const res = await fetch("/api/log");
+      const data = await res.json();
+
+      document.getElementById("summary").textContent =
+        `Agent spent on its own today: ${dollars(data.spentTodayCents)} of ${dollars(data.rules.dailyBudgetCents)} budget. ` +
+        `Per-item limit: ${dollars(data.rules.maxPerItemCents)}. ` +
+        `Approved sites: ${data.rules.approvedSites.join(", ")}.`;
+
+      const rows = document.getElementById("rows");
+      rows.innerHTML = "";
+      for (const e of data.entries) {
+        const tr = document.createElement("tr");
+        tr.append(
+          cell(new Date(e.time).toLocaleString()),
+          cell(e.site),
+          cell(`$${e.price}`),
+          cell(e.decision, e.decision.replace(" ", "-")),
+          cell(e.reason),
+          cell(e.captureId, "mono"),
+        );
+        rows.append(tr);
+      }
+    }
+
+    load();
+    setInterval(load, 3000);
+  </script>
+</body>
+</html>

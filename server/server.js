@@ -379,6 +379,14 @@ app.post("/api/requests/:id/:action", async (req, res) => {
   }
 });
 
+app.get("/api/log", (req, res) => {
+  res.json({
+    entries: readLog().reverse(),
+    spentTodayCents: spentTodayCents(),
+    rules: RULES,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Node server listening at http://localhost:${PORT}/`);
 });
