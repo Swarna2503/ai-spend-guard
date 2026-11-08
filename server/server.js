@@ -214,7 +214,7 @@ function appendLog(entry) {
 function spentTodayCents() {
   const today = new Date().toISOString().slice(0, 10);
   return readLog()
-    .filter((e) => e.decision === "paid" && e.time.startsWith(today))
+    .filter((e) => e.decision === "paid" && e.reason === "Within all rules" && e.time.startsWith(today))
     .reduce((sum, e) => sum + e.priceCents, 0);
 }
 
