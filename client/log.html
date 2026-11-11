@@ -12,6 +12,7 @@
     .paid { color: #1a7f37; font-weight: bold; }
     .blocked, .denied, .failed { color: #c62828; font-weight: bold; }
     .needs-approval { color: #b26a00; font-weight: bold; }
+    .skipped-by-AI { color: #6a1b9a; font-weight: bold; }
     .mono { font-family: monospace; font-size: 12px; }
   </style>
 </head>
@@ -49,11 +50,11 @@
       for (const e of data.entries) {
         const tr = document.createElement("tr");
         tr.append(
-          cell(new Date(e.time).toLocaleString()),
+          cell(new Date(e.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })),
           cell(e.site),
           cell(`$${e.price}`),
-          cell(e.decision, e.decision.replace(" ", "-")),
-          cell(e.reason),
+          cell(e.decision, e.decision.replace(/ /g, "-")),
+          cell(e.aiReason ? `${e.reason} · AI: ${e.aiReason}` : e.reason),
           cell(e.captureId, "mono"),
         );
         rows.append(tr);

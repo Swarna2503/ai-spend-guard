@@ -17,6 +17,11 @@ const sites = {
     description: "Article: The same article at a ridiculous price",
     seller: "Greedy News",
   },
+    gossip: {
+    price: "0.05",
+    description: "Article: Celebrity gossip roundup",
+    seller: "Gossip Daily",
+  },
 };
 
 const usedProofs = new Set();

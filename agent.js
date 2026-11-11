@@ -3,6 +3,7 @@ import fetch from "node-fetch";
 const PAYWALL = "http://localhost:9000";
 const GUARD = "http://localhost:8888";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TASK = "Research how AI agents pay for online content";
 
 async function waitForDecision(requestId) {
   for (let i = 0; i < 60; i++) {
@@ -44,7 +45,11 @@ async function getArticle(site) {
   if (pay.decision === "paid") {
     captureId = pay.captureId;
     console.log(`Guard paid automatically. Capture ID: ${captureId}`);
-  } else if (pay.decision === "pending") {
+  }
+  } else if (pay.decision === "skipped") {
+    console.log(`AI advisor skipped it: ${pay.reason}`);
+    return;
+   else if (pay.decision === "pending") {
     console.log(`Guard paused this: ${pay.reason}`);
     console.log(`Waiting for owner at ${GUARD}/approvals.html ...`);
     const final = await waitForDecision(pay.requestId);
