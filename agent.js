@@ -2,8 +2,8 @@ import fetch from "node-fetch";
 
 const PAYWALL = "http://localhost:9000";
 const GUARD = "http://localhost:8888";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TASK = "Research how AI agents pay for online content";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitForDecision(requestId) {
   for (let i = 0; i < 60; i++) {
@@ -37,6 +37,7 @@ async function getArticle(site) {
       site: offer.site,
       price: offer.price,
       description: offer.description,
+      task: TASK,
     }),
   });
   const pay = await payRes.json();
@@ -44,12 +45,12 @@ async function getArticle(site) {
   let captureId;
   if (pay.decision === "paid") {
     captureId = pay.captureId;
-    console.log(`Guard paid automatically. Capture ID: ${captureId}`);
-  }
+    console.log(`Guard paid automatically. AI said: ${pay.aiReason}`);
+    console.log(`Capture ID: ${captureId}`);
   } else if (pay.decision === "skipped") {
     console.log(`AI advisor skipped it: ${pay.reason}`);
     return;
-   else if (pay.decision === "pending") {
+  } else if (pay.decision === "pending") {
     console.log(`Guard paused this: ${pay.reason}`);
     console.log(`Waiting for owner at ${GUARD}/approvals.html ...`);
     const final = await waitForDecision(pay.requestId);
@@ -69,6 +70,7 @@ async function getArticle(site) {
   console.log(`Paywall answered ${res.status}:`, body);
 }
 
-for (const site of ["fair", "greedy"]) {
+console.log(`Agent task: ${TASK}`);
+for (const site of ["fair", "gossip", "greedy"]) {
   await getArticle(site);
 }
