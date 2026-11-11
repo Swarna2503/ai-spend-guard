@@ -194,7 +194,7 @@ const LOG_PATH = "./data/log.json";
 const RULES = {
   maxPerItemCents: 10,
   dailyBudgetCents: 200,
-  approvedSites: ["fair", "greedy"],
+  approvedSites: ["fair", "greedy", "gossip"],
 };
 
 function readLog() {
