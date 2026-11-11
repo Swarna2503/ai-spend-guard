@@ -55,6 +55,21 @@ const generateAccessToken = async () => {
   return jsonResponse.access_token;
 };
 
+const VAULT_PATH = "./data/vault.json";
+
+function getVaultId() {
+  try {
+    return JSON.parse(fs.readFileSync(VAULT_PATH, "utf8")).vaultId;
+  } catch {
+    return process.env.PAYPAL_VAULT_ID || null;
+  }
+}
+
+function saveVault(info) {
+  fs.mkdirSync("./data", { recursive: true });
+  fs.writeFileSync(VAULT_PATH, JSON.stringify(info, null, 2));
+}
+
 /**
  * Create an order to start the transaction.
  * @see https://developer.paypal.com/docs/api/orders/v2/#orders_create
@@ -74,7 +89,7 @@ const createOrder = async (cart) => {
       {
         amount: {
           currency_code: "USD",
-          value: "110.00",
+          value: "1.00",
         },
       },
     ],
@@ -87,7 +102,8 @@ const createOrder = async (cart) => {
             customer_type: "CONSUMER",
           },
         },
-        experience_context: {
+    experience_context: {
+          brand_name: "AI Spending Guard",
           return_url: "http://example.com",
           cancel_url: "http://example.com",
           shipping_preference: "NO_SHIPPING",
@@ -167,6 +183,15 @@ app.post("/api/orders/:orderID/capture", async (req, res) => {
     const { orderID } = req.params;
     const { jsonResponse, httpStatusCode } = await captureOrder(orderID);
     console.log("capture response", jsonResponse);
+    const vault = jsonResponse?.payment_source?.paypal?.attributes?.vault;
+    if (vault?.status === "VAULTED" && vault.id) {
+      saveVault({
+        vaultId: vault.id,
+        customerId: vault.customer?.id,
+        savedAt: new Date().toISOString(),
+      });
+      console.log(`PayPal connected. Vault ID saved: ${vault.id}`);
+    }
     res.status(httpStatusCode).json(jsonResponse);
   } catch (error) {
     console.error("Failed to create order:", error);
@@ -252,7 +277,7 @@ async function chargeVault(amount) {
     body: JSON.stringify({
       intent: "CAPTURE",
       purchase_units: [{ amount: { currency_code: "USD", value: amount } }],
-      payment_source: { paypal: { vault_id: process.env.PAYPAL_VAULT_ID } },
+      payment_source: { paypal: { vault_id: getVaultId() } },
     }),
   });
   const data = await response.json();
@@ -333,6 +358,9 @@ function createPending(entry, reason) {
 app.post("/api/pay", async (req, res) => {
   const { site, price, description, task } = req.body ?? {};
   const priceCents = Math.round(Number(price) * 100);
+  if (!getVaultId()) {
+    return res.status(409).json({ error: "PayPal not connected. Owner: open http://localhost:8888/ to connect." });
+  }
   if (!site || !Number.isFinite(priceCents) || priceCents <= 0) {
     return res.status(400).json({ error: "Need a site and a positive price" });
   }
@@ -454,6 +482,10 @@ app.get("/api/log", (req, res) => {
     spentTodayCents: spentTodayCents(),
     rules: RULES,
   });
+});
+
+app.get("/api/vault-status", (req, res) => {
+  res.json({ connected: !!getVaultId() });
 });
 
 app.listen(PORT, () => {
