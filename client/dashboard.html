@@ -160,7 +160,7 @@
           cell(e.site),
           cell(`$${e.price}`),
           cell(e.decision, e.decision.replace(/ /g, "-")),
-          cell(e.aiReason ? `${e.reason} · AI: ${e.aiReason}` : e.reason),
+                    cell([e.aiReason ? `${e.reason} · AI: ${e.aiReason}` : e.reason, e.payoutNote ? `${e.payoutNote}${e.payoutTo ? ` (${e.payoutTo})` : ""}` : ""].filter(Boolean).join(" · ")),
           cell(e.captureId, "mono"),
         );
         rows.append(tr);

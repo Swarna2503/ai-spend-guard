@@ -356,12 +356,45 @@ function createPending(entry, reason) {
   console.log(`PENDING ${entry.site} ${entry.price}: ${reason} (${request.id})`);
   return request;
 }
+const SITE_PAYEES = {
+  fair: process.env.FAIR_PAYEE,
+};
+
+async function payoutToSite(site, amount) {
+  const receiver = SITE_PAYEES[site];
+  if (!receiver) return { ok: false, skipped: true };
+  const accessToken = await generateAccessToken();
+  const response = await fetch(`${base}/v1/payments/payouts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      sender_batch_header: {
+        sender_batch_id: `article-${site}-${Date.now()}`,
+        email_subject: "Article payment from AI Spending Guard",
+      },
+      items: [
+        {
+          recipient_type: "EMAIL",
+          amount: { value: amount, currency: "USD" },
+          receiver,
+          note: `Article purchase on ${site}`,
+        },
+      ],
+    }),
+  });
+  const data = await response.json();
+  const batchId = data?.batch_header?.payout_batch_id;
+  return { ok: response.ok && !!batchId, batchId, receiver, reason: data?.message };
+}
 
 app.post("/api/pay", async (req, res) => {
   const { site, price, description, task } = req.body ?? {};
   const priceCents = Math.round(Number(price) * 100);
   if (!getVaultId()) {
-    return res.status(409).json({ error: "PayPal not connected. Owner: open http://localhost:8888/ to connect." });
+    return res.status(409).json({ error: "PayPal not connected. Owner: open /connect to connect." });
   }
   if (!site || !Number.isFinite(priceCents) || priceCents <= 0) {
     return res.status(400).json({ error: "Need a site and a positive price" });
@@ -399,19 +432,23 @@ app.post("/api/pay", async (req, res) => {
       appendLog({ ...entry, decision: "failed", reason: `PayPal status ${result.status}` });
       return res.status(502).json({ decision: "failed", reason: `PayPal status ${result.status}` });
     }
+    const payout = await payoutToSite(site, entry.price);
     appendLog({
       ...entry,
       decision: "paid",
       reason: "Within all rules",
       aiReason: ai.reason,
       captureId: result.captureId,
+      payoutTo: payout.receiver,
+      payoutBatchId: payout.batchId,
+      payoutNote: payout.skipped ? undefined : payout.ok ? "Sent to site" : `Payout failed: ${payout.reason}`,
     });
-    console.log(`PAID ${site} ${entry.price}: ${result.captureId}`);
-    res.json({ decision: "paid", captureId: result.captureId, aiReason: ai.reason });
+    console.log(`PAID ${site} ${entry.price}: ${result.captureId}${payout.ok ? ` → payout ${payout.batchId}` : ""}`);
+    res.json({ decision: "paid", captureId: result.captureId, aiReason: ai.reason, payoutBatchId: payout.batchId });
   } catch (err) {
     console.error("Pay failed:", err);
     appendLog({ ...entry, decision: "failed", reason: err.message });
-    res.status(500).json({ decision: "failed", reason: err.message });
+    if (!res.headersSent) res.status(500).json({ decision: "failed", reason: err.message });
   }
 });
 
