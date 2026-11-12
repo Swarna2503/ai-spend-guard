@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Spending Guard</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e4e7ec; --brand:#1f4fd8; --paid:#1a7f37; --warn:#b26a00; --bad:#c62828; --ai:#6a1b9a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+    header { background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+    .brand { font-weight: 700; font-size: 18px; }
+    .tag { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 8px; }
+    .stats { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; color: var(--muted); align-items: center; }
+    .stats b { color: var(--text); }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--bad); }
+    .dot.on { background: var(--paid); }
+    main { max-width: 1200px; margin: 24px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+    .wide { grid-column: 1 / -1; }
+    h2 { font-size: 16px; margin: 0 0 6px; }
+    .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+    input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
+    button { padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 14px; }
+    button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+    button:disabled { opacity: .5; cursor: default; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12.5px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
+    .req { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+    .req .reason { color: var(--bad); font-size: 14px; margin: 4px 0 10px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .paid { color: var(--paid); font-weight: 600; }
+    .needs-approval { color: var(--warn); font-weight: 600; }
+    .blocked, .denied, .failed { color: var(--bad); font-weight: 600; }
+    .skipped-by-AI { color: var(--ai); font-weight: 600; }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+    .sites a { display: inline-block; margin: 0 14px 8px 0; color: var(--brand); }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">AI Spending Guard <span class="tag">PayPal sandbox demo · no real money</span></div>
+    <div class="stats">
+      <span><span id="dot" class="dot"></span><span id="paypal">PayPal: checking...</span> <a id="connect" href="/connect" hidden>Connect</a></span>
+      <span>Agent spent on its own today: <b id="spent">-</b> of <b id="budget">-</b></span>
+      <span>Per-item limit: <b id="cap">-</b></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Send the agent on a task</h2>
+      <p class="hint">It visits three news sites that charge AI agents over HTTP 402: one relevant, one irrelevant, one overpriced.</p>
+      <input type="text" id="task" value="Research how AI agents pay for online content">
+      <p><button class="primary" id="run">Run agent</button> <span id="runStatus" class="hint"></span></p>
+      <pre id="output">Agent output appears here.</pre>
+    </section>
+
+    <section class="card">
+      <h2>2. Owner approvals</h2>
+      <p class="hint">Anything the rules block waits here. Approve pays from the saved PayPal; deny moves nothing.</p>
+      <div id="pending">Nothing waiting.</div>
+
+      <h2 style="margin-top:22px">3. The website side</h2>
+      <p class="hint">Open a site in your browser: humans pass a Cloudflare check and read free. An agent that declares itself gets a price instead:</p>
+      <div class="sites" id="sites"></div>
+      <pre id="curl"></pre>
+    </section>
+
+    <section class="card wide">
+      <h2>4. Spending log</h2>
+      <p class="hint">Every decision, with its reason. Newest first.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Site</th><th>Price</th><th>Decision</th><th>Reason</th><th>Capture ID</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+    async function getJSON(url, options) {
+      const res = await fetch(url, options);
+      return { status: res.status, data: await res.json() };
+    }
+
+    function cell(text, className) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      if (className) td.className = className;
+      return td;
+    }
+
+    async function loadConfig() {
+      const { data } = await getJSON("/api/config");
+      const sites = $("sites");
+      sites.innerHTML = "";
+      for (const [key, label] of [["fair", "Fair News"], ["gossip", "Gossip Daily"], ["greedy", "Greedy News"]]) {
+        const a = document.createElement("a");
+        a.href = `${data.paywallUrl}/${key}/article`;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = `${label} →`;
+        sites.append(a);
+      }
+      $("curl").textContent = `curl -i -H "X-Agent: demo" ${data.paywallUrl}/fair/article`;
+    }
+
+    async function act(id, action) {
+      await fetch(`/api/requests/${id}/${action}`, { method: "POST" });
+      refresh();
+    }
+
+    function renderPending(list) {
+      const box = $("pending");
+      box.innerHTML = "";
+      if (list.length === 0) {
+        box.textContent = "Nothing waiting.";
+        return;
+      }
+      for (const r of list) {
+        const div = document.createElement("div");
+        div.className = "req";
+        const title = document.createElement("div");
+        title.style.fontWeight = "600";
+        title.textContent = `${r.site} wants $${r.price}`;
+        const desc = document.createElement("div");
+        desc.className = "hint";
+        desc.style.margin = "2px 0";
+        desc.textContent = r.description || "";
+        const reason = document.createElement("div");
+        reason.className = "reason";
+        reason.textContent = `Paused because: ${r.reason}`;
+        const approve = document.createElement("button");
+        approve.className = "primary";
+        approve.textContent = "Approve and pay";
+        approve.onclick = () => act(r.id, "approve");
+        const deny = document.createElement("button");
+        deny.textContent = "Deny";
+        deny.style.marginLeft = "8px";
+        deny.onclick = () => act(r.id, "deny");
+        div.append(title, desc, reason, approve, deny);
+        box.append(div);
+      }
+    }
+
+    function renderLog(entries) {
+      const rows = $("rows");
+      rows.innerHTML = "";
+      for (const e of entries) {
+        const tr = document.createElement("tr");
+        tr.append(
+          cell(new Date(e.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })),
+          cell(e.site),
+          cell(`$${e.price}`),
+          cell(e.decision, e.decision.replace(/ /g, "-")),
+          cell(e.aiReason ? `${e.reason} · AI: ${e.aiReason}` : e.reason),
+          cell(e.captureId, "mono"),
+        );
+        rows.append(tr);
+      }
+    }
+
+    async function refresh() {
+      try {
+        const [vault, log, reqs, run] = await Promise.all([
+          getJSON("/api/vault-status"),
+          getJSON("/api/log"),
+          getJSON("/api/requests"),
+          getJSON("/api/agent-run"),
+        ]);
+        $("dot").className = vault.data.connected ? "dot on" : "dot";
+        $("paypal").textContent = vault.data.connected ? "PayPal connected" : "PayPal not connected";
+        $("connect").hidden = vault.data.connected;
+        $("spent").textContent = dollars(log.data.spentTodayCents);
+        $("budget").textContent = dollars(log.data.rules.dailyBudgetCents);
+        $("cap").textContent = dollars(log.data.rules.maxPerItemCents);
+        renderPending(reqs.data.filter((r) => r.status === "pending"));
+        renderLog(log.data.entries);
+        const out = $("output");
+        const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 10;
+        out.textContent = run.data.output || "Agent output appears here.";
+        if (atBottom) out.scrollTop = out.scrollHeight;
+        $("run").disabled = run.data.running;
+        if (run.data.running) $("runStatus").textContent = "Running...";
+        else if ($("runStatus").textContent === "Running...") $("runStatus").textContent = "";
+      } catch {
+        $("runStatus").textContent = "Lost connection to the guard.";
+      }
+    }
+
+    $("run").onclick = async () => {
+      $("runStatus").textContent = "Starting...";
+      const { status, data } = await getJSON("/api/run-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: $("task").value }),
+      });
+      if (status !== 200) $("runStatus").textContent = data.error;
+      refresh();
+    };
+
+    loadConfig();
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

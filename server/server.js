@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import fs from "fs";
 import express from "express";
 import fetch from "node-fetch";
@@ -200,7 +201,7 @@ app.post("/api/orders/:orderID/capture", async (req, res) => {
 });
 
 // render checkout page with client id & user id token
-app.get("/", async (req, res) => {
+app.get("/connect", async (req, res) => {
   try {
     const { jsonResponse } = await authenticate({
       target_customer_id: req.query.customerID,
@@ -486,6 +487,52 @@ app.get("/api/log", (req, res) => {
 
 app.get("/api/vault-status", (req, res) => {
   res.json({ connected: !!getVaultId() });
+});
+
+const PAYWALL_URL = process.env.PAYWALL_URL || "http://localhost:9000";
+const GUARD_URL = process.env.GUARD_URL || `http://localhost:${PORT}`;
+
+app.get("/", (req, res) => res.redirect("/dashboard.html"));
+
+app.get("/api/config", (req, res) => {
+  res.json({ paywallUrl: PAYWALL_URL });
+});
+
+let agentRun = { running: false, output: "", startedAt: null };
+const runTimes = [];
+
+app.post("/api/run-agent", (req, res) => {
+  if (agentRun.running) {
+    return res.status(409).json({ error: "The agent is already running" });
+  }
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  while (runTimes.length && runTimes[0] < hourAgo) runTimes.shift();
+  if (runTimes.length >= 10) {
+    return res.status(429).json({ error: "Demo limit reached: 10 agent runs per hour" });
+  }
+  const task =
+    String(req.body?.task || "").trim().slice(0, 200) ||
+    "Research how AI agents pay for online content";
+  runTimes.push(Date.now());
+  agentRun = { running: true, output: "", startedAt: new Date().toISOString() };
+
+  const child = spawn(process.execPath, ["agent.js"], {
+    env: { PATH: process.env.PATH, AGENT_TASK: task, GUARD_URL, PAYWALL_URL },
+  });
+  const append = (chunk) => {
+    agentRun.output = (agentRun.output + chunk.toString()).slice(-20000);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  child.on("close", (code) => {
+    agentRun.running = false;
+    append(`\n[agent finished, exit code ${code}]\n`);
+  });
+  res.json({ started: true, task });
+});
+
+app.get("/api/agent-run", (req, res) => {
+  res.json(agentRun);
 });
 
 app.listen(PORT, () => {

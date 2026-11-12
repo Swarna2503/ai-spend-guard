@@ -1,8 +1,9 @@
 import fetch from "node-fetch";
 
-const PAYWALL = "http://localhost:9000";
-const GUARD = "http://localhost:8888";
-const TASK = "Research how AI agents pay for online content";
+const PAYWALL = process.env.PAYWALL_URL || "http://localhost:9000";
+const GUARD = process.env.GUARD_URL || "http://localhost:8888";
+const TASK = process.env.AGENT_TASK || "Research how AI agents pay for online content";
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const AGENT_ID = "ai-spend-guard-research-agent/1.0";
 
@@ -52,7 +53,7 @@ async function getArticle(site) {
     return;
   } else if (pay.decision === "pending") {
     console.log(`Guard paused this: ${pay.reason}`);
-    console.log(`Waiting for owner at ${GUARD}/approvals.html ...`);
+    console.log("Waiting for the owner to approve or deny on the dashboard...");
     const final = await waitForDecision(pay.requestId);
     if (final.status !== "approved") {
       console.log(`Owner decision: ${final.status}. Skipping this article.`);
