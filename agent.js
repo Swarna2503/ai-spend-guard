@@ -23,8 +23,9 @@ async function getArticle(site) {
   const url = `${PAYWALL}/${site}/article`;
   console.log(`\n=== Agent wants: ${url}`);
   let res = await fetch(url, { headers: { "X-Agent": AGENT_ID } });
-  if (res.status !== 402) {
-    console.log("No payment needed:", await res.json());
+    if (res.status !== 402) {
+    const body = await res.text();
+    console.log(`Unexpected answer from the site (HTTP ${res.status}):`, body.slice(0, 300));
     return;
   }
 
