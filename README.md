@@ -20,6 +20,7 @@ blank cheque, and publishers who want AI agents to pay instead of scraping, with
 |---|---|
 | **Dashboard** | https://ai-spend-guard.onrender.com |
 | **Demo news site** | https://ai-spend-guard-paywall.onrender.com/fair/article |
+| **For creators** | https://ai-spend-guard.onrender.com/publishers.html |
 
 **Three-minute tour:**
 
@@ -41,8 +42,12 @@ blank cheque, and publishers who want AI agents to pay instead of scraping, with
    ```
 
    You get `HTTP/1.1 402 Payment Required` with a price instead.
+5. **Run the agent again.** Fair News now shows **Already own Fair News: nothing charged**. The agent reuses
+   its earlier payment instead of paying twice for the same article.
+6. Click **For creators** to see the publisher side: list a site and set a price for AI agents.
 
-Each visitor can run their agent up to 10 times per hour.
+Each visitor can run their agent up to 10 times per hour. The demo agent visits three fixed sites; it doesn't
+search the web. The task only guides the AI's purchase decisions.
 
 ---
 
@@ -57,7 +62,9 @@ flowchart TD
     T -->|Bot cannot solve it| STOP[No article]
 
     W -->|Declares X-Agent header| O[HTTP 402 + price offer]
-    O --> R{Guard rules<br/>approved site?<br/>per-item limit?<br/>daily budget?}
+    O --> OWN{Already bought this<br/>in the last 24 hours?}
+    OWN -->|Yes| REUSE[Reuse that payment<br/>nothing charged] --> PROOF
+    OWN -->|No| R{Guard rules<br/>approved site?<br/>per-item limit?<br/>daily budget?}
 
     R -->|Blocked| H[Owner approval on dashboard]
     H -->|Deny| NO[Nothing paid]
@@ -70,7 +77,7 @@ flowchart TD
 
     PAY --> OUT[Payout to the site's own PayPal account]
     OUT --> PROOF[Agent retries with PayPal capture ID]
-    PROOF --> CHECK{Paywall verifies the payment<br/>completed? right amount?<br/>never used before?}
+    PROOF --> CHECK{Paywall verifies the payment<br/>completed? right amount?<br/>not used for another site?<br/>receipt under 24 hours?}
     CHECK -->|Valid| ART[Article delivered]
     CHECK -->|Invalid| REJ[Rejected]
 ```
@@ -106,13 +113,24 @@ or login per payment, but only when the rules, the AI and (if needed) the visito
 | A bot pretending to be human | nothing special | The human check, which it can't pass |
 
 When an agent comes back with payment proof, the paywall checks with PayPal that the payment is
-`COMPLETED`, for the **right amount** and currency, and **never used before**. Used proofs are saved to disk,
-so a payment can't be replayed after the paywall restarts.
+`COMPLETED`, for the **right amount** and currency. Each proof is then tied to the article it paid for:
+
+| Proof presented | Result |
+|---|---|
+| New, verified with PayPal | Article delivered; proof recorded for this article |
+| Same proof, **same article**, within 24 hours | Article delivered again (a receipt: no second payment) |
+| Same proof, **different article** | Rejected: "Proof already used" |
+| Same proof, after 24 hours | Rejected: "Receipt expired" |
+| Made-up proof | Rejected: PayPal doesn't know it |
+
+Used proofs are saved to disk, so none of this resets when the paywall restarts.
 
 ### Side 2: the agent owner, "pay for small, sensible things; ask me about the rest"
 
-Every purchase goes through three layers, in this order:
+Every purchase goes through these checks, in this order:
 
+0. **Already owned?** If the agent bought this site's article in the last 24 hours, the guard reuses that
+   payment and charges nothing. It's logged as **Already owned** and doesn't count toward the budget.
 1. **Rules (always first):** approved sites only, a per-item limit, and a daily budget. Each owner sets their
    own limits on the dashboard. If the rules block a purchase, it waits for the owner.
 2. **AI advisor (Gemini):** asked only if the rules allow the purchase: *does this help the agent's task?*
@@ -128,6 +146,16 @@ flowchart LR
     G -->|2. Payout| F[Fair News's own PayPal account]
 ```
 
+### Side 3: creators, "list your site"
+
+The **For creators** page explains the publisher side and lets anyone who has connected PayPal list a site:
+name, article URL and the price an AI agent should pay. Listings are validated (only `http`/`https` links,
+$0.01 to $100, 5 per account), shown publicly, and removable only by their owner.
+
+Listings are **saved for review, not yet sold to agents**. Going live needs two things this demo
+deliberately doesn't fake: a check that the creator owns the site, and the creator's own PayPal account for
+payouts.
+
 ---
 
 ## Architecture
@@ -138,6 +166,7 @@ flowchart LR
 | **Paywall** | `server/paywall.js` | PayPal (to verify only) | 402 offers, human check, payment verification, replay protection |
 | **Agent** | `agent.js` | **No** | Visits sites, asks the guard to pay |
 | **Dashboard** | `client/dashboard.html`, `client/login.html` | No | Connect PayPal, run agent, set limits, approve/deny, view log |
+| **Creators page** | `client/publishers.html` | No | Publisher explainer, demo sites, creator listings |
 
 **Every visitor is separate.** A signed, HttpOnly cookie identifies the visitor; their saved PayPal, limits,
 log and approvals live in their own folder under `data/users/`. One visitor can't see or spend another's.
@@ -237,11 +266,15 @@ To try a second user, open the app in a **different browser** and connect a diff
 - **The AI can only veto.** A website's description could try to manipulate the AI (prompt injection);
   even a fooled AI cannot spend beyond the rules.
 - **Fail safe.** If the AI is unavailable, requests go to the owner, never straight to payment.
-- **Payment proofs are verified with PayPal**, and each proof works only once, even across restarts.
+- **Payment proofs are verified with PayPal**, and each proof is tied to one article: it can't be reused on
+  another site, and it works again for the same article only for 24 hours. This survives restarts.
+- **Never pay twice.** The guard checks the owner's own history before charging, so repeat visits within
+  24 hours cost nothing.
 - **No double charges.** Approving marks a request as `charging` before calling PayPal.
 - **Disconnect means disconnect.** **Disconnect PayPal** deletes the saved payment method at PayPal and
   the visitor's data.
-- **Untrusted text is never rendered as HTML.** Site descriptions are escaped or shown with `textContent`.
+- **Untrusted text is never rendered as HTML.** Site descriptions and creator listings are escaped or shown
+  with `textContent`; listing links must be `http` or `https`.
 - **Money math in cents** to avoid floating-point errors.
 
 ---
@@ -253,7 +286,8 @@ To try a second user, open the app in a **different browser** and connect a diff
 - **Built:** connecting PayPal without a purchase (Vault setup tokens), multi-user sessions and per-user data,
   server-side charging of saved PayPal methods, payouts to sites, the rules engine and editable limits, the
   Gemini advisor, owner approvals, the paywall with HTTP 402 offers, PayPal payment verification and replay
-  protection, human verification with Turnstile, the agent, the dashboard, and hosting.
+  protection, 24-hour receipts so an agent never pays twice, human verification with Turnstile, the agent,
+  the dashboard, the creators page and listings, and hosting.
 
 ## Inspiration
 
@@ -279,11 +313,27 @@ on the agent side, and human access plus payment verification on the website sid
 - Only **Fair News** is connected to its own PayPal account; the other demo sites aren't.
 - **Sessions, not accounts.** A visitor is identified by a browser cookie. Signing out, or using another
   browser, starts a new session that connects PayPal again.
-- On the hosted demo, data lives on the server's disk; without a persistent disk, a redeploy clears it and
-  visitors reconnect.
+- **Storage is JSON files**, kept on a 1 GB persistent disk on Render so data survives redeploys. Fine for a
+  demo with one server; a production version would use a database such as Postgres.
+- **A payment proof is a 24-hour ticket for one article.** Anyone holding the capture ID could read that one
+  article for a day. It's only shown in the owner's own dashboard, but a production version would bind
+  receipts to the buyer.
+- **Creator listings are not sold to agents yet** (no ownership check, no per-creator payouts).
+- **The demo agent is scripted:** it visits three fixed sites rather than searching the web.
 - Human verification uses Cloudflare Turnstile **test keys** ("for testing only" banner). Advanced bots can
   sometimes pass human checks; this raises the cost of lying, it doesn't make it impossible.
 - The daily budget resets at midnight **UTC** and counts only autonomous spending.
+
+---
+
+## What's next
+
+- **Creator marketplace:** publishers verify they own their site, connect their own PayPal, and go live for
+  agents, with payouts going straight to them.
+- **AI-suggested pricing:** an AI reads each article and suggests a price; the publisher approves it. Same
+  principle as the buyer side: AI advises, people decide.
+- **A real database** and receipts bound to the buyer.
+- **Batched payouts** per site to cut fees.
 
 ---
 
