@@ -13,6 +13,26 @@ fs.mkdirSync("./data", { recursive: true });
 const OWNER_USER = process.env.OWNER_USER || "owner";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
 const AGENT_TOKEN = crypto.randomUUID();
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const sign = (value) => crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("hex");
+
+function readCookie(req, name) {
+  for (const part of (req.get("Cookie") || "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+function isOwner(req) {
+  const value = readCookie(req, "owner_session");
+  if (!value) return false;
+  const [expires, signature] = value.split(".");
+  if (!expires || !signature || Number(expires) < Date.now()) return false;
+  const expected = sign(expires);
+  return signature.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
 
 function isAgentRequest(req) {
   const agentRoute =
@@ -21,15 +41,12 @@ function isAgentRequest(req) {
   return agentRoute && req.get("X-Agent-Token") === AGENT_TOKEN;
 }
 
+const PUBLIC_PATHS = new Set(["/login.html", "/api/login", "/api/logout"]);
+
 app.use((req, res, next) => {
-  if (!OWNER_PASSWORD || isAgentRequest(req)) return next();
-  const [scheme, encoded] = (req.get("Authorization") || "").split(" ");
-  if (scheme === "Basic" && encoded) {
-    const [user, ...rest] = Buffer.from(encoded, "base64").toString().split(":");
-    if (user === OWNER_USER && rest.join(":") === OWNER_PASSWORD) return next();
-  }
-  res.set("WWW-Authenticate", 'Basic realm="AI Spending Guard owner"');
-  res.status(401).send("Owner login required");
+  if (!OWNER_PASSWORD || PUBLIC_PATHS.has(req.path) || isAgentRequest(req) || isOwner(req)) return next();
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Owner login required" });
+  res.redirect("/login.html");
 });
 
 app.set("view engine", "ejs");
@@ -594,6 +611,25 @@ app.post("/api/run-agent", (req, res) => {
 
 app.get("/api/agent-run", (req, res) => {
   res.json(agentRun);
+});
+
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body ?? {};
+  if (OWNER_PASSWORD && (username !== OWNER_USER || password !== OWNER_PASSWORD)) {
+    return res.status(401).json({ error: "Wrong username or password" });
+  }
+  const expires = String(Date.now() + 12 * 60 * 60 * 1000);
+  const secure = req.secure || req.get("x-forwarded-proto") === "https";
+  res.set(
+    "Set-Cookie",
+    `owner_session=${expires}.${sign(expires)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${secure ? "; Secure" : ""}`,
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (req, res) => {
+  res.set("Set-Cookie", "owner_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

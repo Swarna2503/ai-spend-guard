@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · AI Spending Guard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #f5f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --brand: #4f46e5; --brand-dark: #4338ca; --brand-soft: #eef2ff; --bad: #b91c1c; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; font-family: Inter, system-ui, -apple-system, sans-serif; background: radial-gradient(1200px 600px at 10% -10%, #e0e7ff, transparent), radial-gradient(900px 500px at 110% 110%, #ede9fe, transparent), var(--bg); color: var(--text); }
+    .card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: 0 10px 40px rgba(16, 24, 40, .08); }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; margin-bottom: 22px; }
+    .logo-mark { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #4f46e5, #7c3aed); display: grid; place-items: center; color: #fff; }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+    input { width: 100%; font: inherit; font-size: 15px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; }
+    input:focus { outline: 3px solid var(--brand-soft); border-color: var(--brand); }
+    button { width: 100%; font: inherit; font-size: 15px; font-weight: 600; padding: 12px; border-radius: 10px; border: 0; background: var(--brand); color: #fff; cursor: pointer; }
+    button:hover { background: var(--brand-dark); }
+    button:disabled { opacity: .6; cursor: default; }
+    .error { color: var(--bad); font-size: 13.5px; min-height: 20px; margin: 10px 0 0; }
+    .note { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="logo"><div class="logo-mark">◆</div>AI Spending Guard</div>
+    <h1>Owner sign in</h1>
+    <p>This dashboard controls how a demo AI agent spends money with PayPal. Sandbox only: play money, nothing real is charged.</p>
+    <form id="form">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button id="submit" type="submit">Sign in</button>
+      <div id="error" class="error" role="alert"></div>
+    </form>
+    <p class="note">Judges: the demo login is in the Devpost testing instructions.</p>
+  </main>
+  <script>
+    document.getElementById("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.getElementById("submit");
+      const error = document.getElementById("error");
+      button.disabled = true;
+      error.textContent = "";
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("username").value,
+            password: document.getElementById("password").value,
+          }),
+        });
+        if (res.ok) {
+          location.href = "/dashboard.html";
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        error.textContent = data.error || "Sign in failed.";
+      } catch {
+        error.textContent = "Could not reach the server.";
+      }
+      button.disabled = false;
+    });
+  </script>
+</body>
+</html>

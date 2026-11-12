@@ -4,115 +4,253 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Spending Guard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e4e7ec; --brand:#1f4fd8; --paid:#1a7f37; --warn:#b26a00; --bad:#c62828; --ai:#6a1b9a; }
+    :root {
+      --bg: #f5f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb;
+      --brand: #4f46e5; --brand-dark: #4338ca; --brand-soft: #eef2ff;
+      --paid: #047857; --paid-soft: #ecfdf5;
+      --warn: #b45309; --warn-soft: #fffbeb; --warn-line: #fcd34d;
+      --bad: #b91c1c; --bad-soft: #fef2f2;
+      --ai: #7c3aed; --ai-soft: #f5f3ff;
+      --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 16px rgba(16, 24, 40, .06);
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
-    header { background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
-    .brand { font-weight: 700; font-size: 18px; }
-    .tag { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 8px; }
-    .stats { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; color: var(--muted); align-items: center; }
-    .stats b { color: var(--text); }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--bad); }
-    .dot.on { background: var(--paid); }
-    main { max-width: 1200px; margin: 24px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; min-width: 0; }
-    .wide { grid-column: 1 / -1; }
-    h2 { font-size: 16px; margin: 0 0 6px; }
-    .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
-    input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
-    button { padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 14px; }
-    button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
-    button:disabled { opacity: .5; cursor: default; }
-    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12.5px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
-    .req { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
-    .req .reason { color: var(--bad); font-size: 14px; margin: 4px 0 10px; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+    a { color: var(--brand); font-weight: 600; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .topbar { position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+    .topbar-inner { max-width: 1180px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+    .logo-mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #4f46e5, #7c3aed); display: grid; place-items: center; color: #fff; font-size: 15px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 500; background: #f3f4f6; color: var(--muted); }
+    .pill.ok { background: var(--paid-soft); color: var(--paid); }
+    .pill.off { background: var(--bad-soft); color: var(--bad); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .top-right { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .budget { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+    .bar { width: 90px; height: 6px; border-radius: 99px; background: #e5e7eb; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: var(--brand); width: 0; transition: width .4s; }
+
+    .btn { font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--line); background: #fff; color: var(--text); cursor: pointer; }
+    .btn:hover { background: #f9fafb; }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .btn.primary:hover { background: var(--brand-dark); }
+    .btn.small { padding: 6px 12px; font-size: 13px; }
+    .btn:disabled { opacity: .55; cursor: default; }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+    .hero { padding: 32px 0 8px; }
+    .hero h1 { font-size: 30px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -.02em; }
+    .hero p { margin: 0; color: var(--muted); font-size: 16px; max-width: 760px; line-height: 1.55; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 22px 0 8px; }
+    .step { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
+    .step .n { width: 26px; height: 26px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+    .step b { display: block; margin-bottom: 4px; font-size: 15px; }
+    .step p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+
+    .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; margin: 18px 0; }
+    .col { display: grid; gap: 18px; align-content: start; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); min-width: 0; }
+    .card h2 { font-size: 17px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; line-height: 1.5; }
+
+    .task-row { display: flex; gap: 10px; }
+    .task-row input { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; }
+    .task-row input:focus { outline: 3px solid var(--brand-soft); border-color: var(--brand); }
+    .status-line { font-size: 13px; color: var(--muted); min-height: 20px; margin: 10px 0 4px; }
+
+    .results { display: grid; gap: 10px; margin-top: 6px; }
+    .result { display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+    .result .icon { flex: 0 0 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-size: 14px; font-weight: 700; }
+    .result .title { font-weight: 600; font-size: 14.5px; }
+    .result .detail { color: var(--muted); font-size: 13px; margin-top: 2px; line-height: 1.45; }
+    .r-paid .icon { background: var(--paid-soft); color: var(--paid); }
+    .r-skip .icon { background: var(--ai-soft); color: var(--ai); }
+    .r-wait .icon { background: var(--warn-soft); color: var(--warn); }
+    .r-bad .icon { background: var(--bad-soft); color: var(--bad); }
+    .empty { color: var(--muted); font-size: 14px; padding: 18px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+
+    details { margin-top: 14px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 10px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; margin: 10px 0 0; }
+
+    .approval { border: 1px solid var(--warn-line); background: var(--warn-soft); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+    .approval .title { font-weight: 700; }
+    .approval .desc { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .approval .why { color: var(--warn); font-size: 13.5px; margin: 6px 0 12px; }
+    .actions { display: flex; gap: 8px; }
+
+    .site { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .site:last-child { border-bottom: 0; }
+    .site .name { font-weight: 600; font-size: 14px; }
+    .site .meta { color: var(--muted); font-size: 12.5px; }
+    .site-right { display: flex; gap: 12px; align-items: center; }
+    .price { font-weight: 600; font-size: 13px; background: #f3f4f6; padding: 3px 8px; border-radius: 6px; }
+    .code { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 10px 12px; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; margin-top: 8px; }
+
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-    th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    .paid { color: var(--paid); font-weight: 600; }
-    .needs-approval { color: var(--warn); font-weight: 600; }
-    .blocked, .denied, .failed { color: var(--bad); font-weight: 600; }
-    .skipped-by-AI { color: var(--ai); font-weight: 600; }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; }
-    .sites a { display: inline-block; margin: 0 14px 8px 0; color: var(--brand); }
-    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 10px; border-bottom: 1px solid var(--line); }
+    td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .b-paid { background: var(--paid-soft); color: var(--paid); }
+    .b-skip { background: var(--ai-soft); color: var(--ai); }
+    .b-wait { background: var(--warn-soft); color: var(--warn); }
+    .b-bad { background: var(--bad-soft); color: var(--bad); }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+    footer { color: var(--muted); font-size: 12.5px; text-align: center; padding: 20px 0 36px; }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 24px; }
+      .task-row { flex-direction: column; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">AI Spending Guard <span class="tag">PayPal sandbox demo · no real money</span></div>
-    <div class="stats">
-      <span><span id="dot" class="dot"></span><span id="paypal">PayPal: checking...</span> <a id="connect" href="/connect" hidden>Connect</a></span>
-      <span>Agent spent on its own today: <b id="spent">-</b> of <b id="budget">-</b></span>
-      <span>Per-item limit: <b id="cap">-</b></span>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="logo"><div class="logo-mark">◆</div>AI Spending Guard <span class="pill">Sandbox · play money</span></div>
+      <div class="top-right">
+        <span id="paypal" class="pill"><span class="dot"></span><span id="paypalText">Checking PayPal...</span></span>
+        <span class="budget">Spent by agent today <span class="bar"><span id="barFill"></span></span><b id="spentText">-</b></span>
+        <a id="connect" class="btn small" href="/connect" hidden>Connect PayPal</a>
+        <button id="logout" class="btn small">Log out</button>
+      </div>
     </div>
-  </header>
+  </div>
 
-  <main>
-    <section class="card">
-      <h2>1. Send the agent on a task</h2>
-      <p class="hint">It visits three news sites that charge AI agents over HTTP 402: one relevant, one irrelevant, one overpriced.</p>
-      <input type="text" id="task" value="Research how AI agents pay for online content">
-      <p><button class="primary" id="run">Run agent</button> <span id="runStatus" class="hint"></span></p>
-      <pre id="output">Agent output appears here.</pre>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Your AI agent can pay for content. You stay in control.</h1>
+      <p>News sites charge AI agents a few cents per article. This guard lets your agent pay for small, useful things on its own, and asks you before anything risky. Websites get paid; people still read for free.</p>
+      <div class="steps">
+        <div class="step"><div class="n">1</div><b>The agent finds a paywall</b><p>Sites answer AI agents with a price (HTTP 402). People pass a quick human check and read free.</p></div>
+        <div class="step"><div class="n">2</div><b>The guard decides</b><p>Approved sites only, at most $0.10 per item and $2 per day. The AI can veto anything that doesn't help the task. Everything the rules block waits for you.</p></div>
+        <div class="step"><div class="n">3</div><b>PayPal pays the site</b><p>Your saved PayPal is charged with no popup, Fair News receives the money in its own account, and the site checks the payment before unlocking.</p></div>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>2. Owner approvals</h2>
-      <p class="hint">Anything the rules block waits here. Approve pays from the saved PayPal; deny moves nothing.</p>
-      <div id="pending">Nothing waiting.</div>
+    <div class="grid">
+      <section class="card">
+        <h2>Send your agent on a task</h2>
+        <p class="sub">It visits three news sites: one useful, one off-topic, one overpriced. Watch what the guard does with each.</p>
+        <div class="task-row">
+          <input id="task" type="text" value="Research how AI agents pay for online content" aria-label="Agent task">
+          <button id="run" class="btn primary">Run agent</button>
+        </div>
+        <div id="runStatus" class="status-line"></div>
+        <div id="results" class="results"><div class="empty">Click <b>Run agent</b> to start.</div></div>
+        <details>
+          <summary>Show the agent's raw output</summary>
+          <pre id="output">Nothing yet.</pre>
+        </details>
+      </section>
 
-      <h2 style="margin-top:22px">3. The website side</h2>
-      <p class="hint">Open a site in your browser: humans pass a Cloudflare check and read free. An agent that declares itself gets a price instead:</p>
-      <div class="sites" id="sites"></div>
-      <pre id="curl"></pre>
-    </section>
+      <div class="col">
+        <section class="card">
+          <h2>Waiting for your approval</h2>
+          <p class="sub">Anything the rules block lands here. Approve pays from your saved PayPal; deny moves nothing.</p>
+          <div id="pending"><div class="empty">Nothing waiting.</div></div>
+        </section>
+        <section class="card">
+          <h2>The websites</h2>
+          <p class="sub">Open one yourself: you'll get a human check and read free. An AI agent gets a price instead.</p>
+          <div id="sites"></div>
+          <p class="sub" style="margin: 12px 0 0">What an AI agent sees:</p>
+          <div class="code" id="curl"></div>
+        </section>
+      </div>
+    </div>
 
-    <section class="card wide">
-      <h2>4. Spending log</h2>
-      <p class="hint">Every decision, with its reason. Newest first.</p>
+    <section class="card" style="margin-bottom: 18px">
+      <h2>Spending log</h2>
+      <p class="sub">Every decision and why. Newest first.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Time</th><th>Site</th><th>Price</th><th>Decision</th><th>Reason</th><th>Capture ID</th></tr></thead>
+          <thead><tr><th>Time</th><th>Site</th><th>Price</th><th>Decision</th><th>Why</th><th>PayPal capture</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
+      <div id="logEmpty" class="empty" hidden>No decisions yet.</div>
     </section>
-  </main>
+
+    <footer>PayPal sandbox demo · no real money · built for the PayPal AI Hackathon</footer>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
+    const SITES = {
+      fair: { name: "Fair News", price: "$0.05", meta: "Useful for the task" },
+      gossip: { name: "Gossip Daily", price: "$0.05", meta: "Off-topic" },
+      greedy: { name: "Greedy News", price: "$50.00", meta: "Overpriced" },
+    };
+    const siteName = (key) => (SITES[key] ? SITES[key].name : key);
+    const LABELS = { "paid": "Paid", "skipped by AI": "Skipped by AI", "needs approval": "Needs approval", "denied": "Denied", "blocked": "Blocked", "failed": "Failed" };
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
 
     async function getJSON(url, options) {
       const res = await fetch(url, options);
+      if (res.status === 401) {
+        location.href = "/login.html";
+        throw new Error("login");
+      }
       return { status: res.status, data: await res.json() };
     }
 
-    function cell(text, className) {
-      const td = document.createElement("td");
-      td.textContent = text ?? "";
-      if (className) td.className = className;
-      return td;
+    function kind(decision) {
+      if (decision === "paid") return { css: "paid", icon: "✓", badge: "b-paid" };
+      if (decision === "skipped by AI") return { css: "skip", icon: "AI", badge: "b-skip" };
+      if (decision === "needs approval") return { css: "wait", icon: "!", badge: "b-wait" };
+      return { css: "bad", icon: "✕", badge: "b-bad" };
+    }
+
+    function friendly(e) {
+      const name = siteName(e.site);
+      if (e.decision === "paid") {
+        const how = e.reason === "Approved by owner" ? "You approved it" : `AI agreed: ${e.aiReason || "within the rules"}`;
+        const sent = e.payoutNote === "Sent to site" ? ` · money sent to ${name}'s own PayPal` : "";
+        return { title: `Paid ${name} $${e.price}`, detail: how + sent };
+      }
+      if (e.decision === "skipped by AI") return { title: `Skipped ${name}`, detail: `AI: ${e.reason}` };
+      if (e.decision === "needs approval") return { title: `${name} wants $${e.price}: waiting for you`, detail: e.reason };
+      if (e.decision === "denied") return { title: `You denied ${name}`, detail: "Nothing was paid" };
+      return { title: `${name}: ${LABELS[e.decision] || e.decision}`, detail: e.reason || "" };
     }
 
     async function loadConfig() {
       const { data } = await getJSON("/api/config");
-      const sites = $("sites");
-      sites.innerHTML = "";
-      for (const [key, label] of [["fair", "Fair News"], ["gossip", "Gossip Daily"], ["greedy", "Greedy News"]]) {
-        const a = document.createElement("a");
-        a.href = `${data.paywallUrl}/${key}/article`;
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.textContent = `${label} →`;
-        sites.append(a);
+      const box = $("sites");
+      box.innerHTML = "";
+      for (const [key, site] of Object.entries(SITES)) {
+        const row = el("div", "site");
+        const left = el("div");
+        left.append(el("div", "name", site.name), el("div", "meta", site.meta));
+        const right = el("div", "site-right");
+        const link = el("a", null, "Read →");
+        link.href = `${data.paywallUrl}/${key}/article`;
+        link.target = "_blank";
+        link.rel = "noopener";
+        right.append(el("span", "price", site.price), link);
+        row.append(left, right);
+        box.append(row);
       }
       $("curl").textContent = `curl -i -H "X-Agent: demo" ${data.paywallUrl}/fair/article`;
     }
 
-    async function act(id, action) {
+    async function act(id, action, buttons) {
+      buttons.forEach((b) => (b.disabled = true));
       await fetch(`/api/requests/${id}/${action}`, { method: "POST" });
       refresh();
     }
@@ -121,47 +259,71 @@
       const box = $("pending");
       box.innerHTML = "";
       if (list.length === 0) {
-        box.textContent = "Nothing waiting.";
+        box.append(el("div", "empty", "Nothing waiting."));
         return;
       }
       for (const r of list) {
-        const div = document.createElement("div");
-        div.className = "req";
-        const title = document.createElement("div");
-        title.style.fontWeight = "600";
-        title.textContent = `${r.site} wants $${r.price}`;
-        const desc = document.createElement("div");
-        desc.className = "hint";
-        desc.style.margin = "2px 0";
-        desc.textContent = r.description || "";
-        const reason = document.createElement("div");
-        reason.className = "reason";
-        reason.textContent = `Paused because: ${r.reason}`;
-        const approve = document.createElement("button");
-        approve.className = "primary";
-        approve.textContent = "Approve and pay";
-        approve.onclick = () => act(r.id, "approve");
-        const deny = document.createElement("button");
-        deny.textContent = "Deny";
-        deny.style.marginLeft = "8px";
-        deny.onclick = () => act(r.id, "deny");
-        div.append(title, desc, reason, approve, deny);
-        box.append(div);
+        const card = el("div", "approval");
+        card.append(el("div", "title", `${siteName(r.site)} wants $${r.price}`));
+        card.append(el("div", "desc", r.description || ""));
+        card.append(el("div", "why", `Paused because: ${r.reason}`));
+        const actions = el("div", "actions");
+        const approve = el("button", "btn primary small", "Approve & pay");
+        const deny = el("button", "btn small", "Deny");
+        approve.onclick = () => act(r.id, "approve", [approve, deny]);
+        deny.onclick = () => act(r.id, "deny", [approve, deny]);
+        actions.append(approve, deny);
+        card.append(actions);
+        box.append(card);
+      }
+    }
+
+    function renderResults(entries, run) {
+      if (!run.startedAt) return;
+      const box = $("results");
+      const since = new Date(run.startedAt).getTime() - 1000;
+      const latest = {};
+      for (const e of entries) {
+        if (new Date(e.time).getTime() >= since && !latest[e.site]) latest[e.site] = e;
+      }
+      const order = Object.keys(SITES).filter((key) => latest[key]);
+      box.innerHTML = "";
+      if (order.length === 0) {
+        box.append(el("div", "empty", run.running ? "The agent is visiting the first site..." : "No results from this run."));
+        return;
+      }
+      for (const key of order) {
+        const e = latest[key];
+        const k = kind(e.decision);
+        const text = friendly(e);
+        const item = el("div", `result r-${k.css}`);
+        const body = el("div");
+        body.append(el("div", "title", text.title), el("div", "detail", text.detail));
+        item.append(el("div", "icon", k.icon), body);
+        box.append(item);
       }
     }
 
     function renderLog(entries) {
       const rows = $("rows");
       rows.innerHTML = "";
+      $("logEmpty").hidden = entries.length > 0;
       for (const e of entries) {
-        const tr = document.createElement("tr");
+        const tr = el("tr");
+        const decision = el("td");
+        decision.append(el("span", `badge ${kind(e.decision).badge}`, LABELS[e.decision] || e.decision));
+        const why = [
+          e.reason,
+          e.aiReason ? `AI: ${e.aiReason}` : "",
+          e.payoutNote ? `${e.payoutNote}${e.payoutTo ? ` (${e.payoutTo})` : ""}` : "",
+        ].filter(Boolean).join(" · ");
         tr.append(
-          cell(new Date(e.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })),
-          cell(e.site),
-          cell(`$${e.price}`),
-          cell(e.decision, e.decision.replace(/ /g, "-")),
-                    cell([e.aiReason ? `${e.reason} · AI: ${e.aiReason}` : e.reason, e.payoutNote ? `${e.payoutNote}${e.payoutTo ? ` (${e.payoutTo})` : ""}` : ""].filter(Boolean).join(" · ")),
-          cell(e.captureId, "mono"),
+          el("td", null, new Date(e.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })),
+          el("td", null, siteName(e.site)),
+          el("td", null, `$${e.price}`),
+          decision,
+          el("td", null, why),
+          el("td", "mono", e.captureId || ""),
         );
         rows.append(tr);
       }
@@ -175,28 +337,43 @@
           getJSON("/api/requests"),
           getJSON("/api/agent-run"),
         ]);
-        $("dot").className = vault.data.connected ? "dot on" : "dot";
-        $("paypal").textContent = vault.data.connected ? "PayPal connected" : "PayPal not connected";
-        $("connect").hidden = vault.data.connected;
-        $("spent").textContent = dollars(log.data.spentTodayCents);
-        $("budget").textContent = dollars(log.data.rules.dailyBudgetCents);
-        $("cap").textContent = dollars(log.data.rules.maxPerItemCents);
-        renderPending(reqs.data.filter((r) => r.status === "pending"));
+        const connected = vault.data.connected;
+        $("paypal").className = connected ? "pill ok" : "pill off";
+        $("paypalText").textContent = connected ? "PayPal connected" : "PayPal not connected";
+        $("connect").hidden = connected;
+
+        const spent = log.data.spentTodayCents;
+        const budget = log.data.rules.dailyBudgetCents;
+        $("spentText").textContent = `${dollars(spent)} of ${dollars(budget)}`;
+        $("barFill").style.width = `${Math.min(100, (spent / budget) * 100)}%`;
+
+        const pending = reqs.data.filter((r) => r.status === "pending");
+        renderPending(pending);
+        renderResults(log.data.entries, run.data);
         renderLog(log.data.entries);
+
         const out = $("output");
         const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 10;
-        out.textContent = run.data.output || "Agent output appears here.";
+        out.textContent = run.data.output || "Nothing yet.";
         if (atBottom) out.scrollTop = out.scrollHeight;
+
         $("run").disabled = run.data.running;
-        if (run.data.running) $("runStatus").textContent = "Running...";
-        else if ($("runStatus").textContent === "Running...") $("runStatus").textContent = "";
-      } catch {
-        $("runStatus").textContent = "Lost connection to the guard.";
+        if (run.data.running) {
+          $("runStatus").textContent = pending.length
+            ? "Your agent is waiting for your decision under \"Waiting for your approval\"."
+            : "Your agent is working...";
+        } else {
+          $("runStatus").textContent = run.data.startedAt ? "Run finished." : "";
+        }
+      } catch (err) {
+        if (err.message !== "login") $("runStatus").textContent = "Lost connection to the guard. Retrying...";
       }
     }
 
     $("run").onclick = async () => {
       $("runStatus").textContent = "Starting...";
+      $("results").innerHTML = "";
+      $("results").append(el("div", "empty", "The agent is starting..."));
       const { status, data } = await getJSON("/api/run-agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -204,6 +381,11 @@
       });
       if (status !== 200) $("runStatus").textContent = data.error;
       refresh();
+    };
+
+    $("logout").onclick = async () => {
+      await fetch("/api/logout", { method: "POST" });
+      location.href = "/login.html";
     };
 
     loadConfig();
