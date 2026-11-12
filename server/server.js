@@ -1,6 +1,6 @@
+import fs from "fs";
 import crypto from "crypto";
 import { spawn } from "child_process";
-import fs from "fs";
 import express from "express";
 import fetch from "node-fetch";
 import "dotenv/config";
@@ -8,11 +8,44 @@ import "dotenv/config";
 const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PORT = 8888 } = process.env;
 const base = "https://api-m.sandbox.paypal.com";
 const app = express();
-fs.mkdirSync("./data", { recursive: true });
+app.set("trust proxy", true);
+fs.mkdirSync("./data/users", { recursive: true });
 
-const OWNER_USER = process.env.OWNER_USER || "owner";
-const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
-const AGENT_TOKEN = crypto.randomUUID();
+/* ---------------- PayPal auth ---------------- */
+
+async function handleResponse(response) {
+  try {
+    const jsonResponse = await response.json();
+    return { jsonResponse, httpStatusCode: response.status };
+  } catch (err) {
+    const errorMessage = await response.text();
+    throw new Error(errorMessage);
+  }
+}
+
+const authenticate = async () => {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+    throw new Error("MISSING_API_CREDENTIALS");
+  }
+  const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString("base64");
+  const response = await fetch(`${base}/v1/oauth2/token`, {
+    method: "POST",
+    body: "grant_type=client_credentials",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+  });
+  return handleResponse(response);
+};
+
+const generateAccessToken = async () => {
+  const { jsonResponse } = await authenticate();
+  return jsonResponse.access_token;
+};
+
+/* ---------------- Sessions: one per visitor ---------------- */
+
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const sign = (value) => crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("hex");
 
@@ -24,329 +57,322 @@ function readCookie(req, name) {
   return null;
 }
 
-function isOwner(req) {
-  const value = readCookie(req, "owner_session");
-  if (!value) return false;
-  const [expires, signature] = value.split(".");
-  if (!expires || !signature || Number(expires) < Date.now()) return false;
-  const expected = sign(expires);
-  return signature.length === expected.length &&
-    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+function getUserId(req) {
+  const value = readCookie(req, "uid");
+  if (!value) return null;
+  const [id, signature] = value.split(".");
+  if (!id || !signature || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const expected = sign(id);
+  if (signature.length !== expected.length) return null;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected)) ? id : null;
 }
 
-function isAgentRequest(req) {
-  const agentRoute =
-    (req.method === "POST" && req.path === "/api/pay") ||
-    (req.method === "GET" && /^\/api\/requests\/[^/]+$/.test(req.path));
-  return agentRoute && req.get("X-Agent-Token") === AGENT_TOKEN;
+function cookieFlags(req) {
+  return req.secure ? "; Secure" : "";
 }
 
-const PUBLIC_PATHS = new Set(["/login.html", "/api/login", "/api/logout"]);
-
-app.use((req, res, next) => {
-  if (!OWNER_PASSWORD || PUBLIC_PATHS.has(req.path) || isAgentRequest(req) || isOwner(req)) return next();
-  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Owner login required" });
-  res.redirect("/login.html");
-});
-
-app.set("view engine", "ejs");
-app.set("views", "./server/views");
-
-// host static files
-app.use(express.static("client"));
-
-// parse post params sent in body in json format
-app.use(express.json());
-
-/**
- * Generate an OAuth 2.0 access token for authenticating with PayPal REST APIs.
- * @see https://developer.paypal.com/api/rest/authentication/
- */
-const authenticate = async (bodyParams) => {
-  const params = {
-    grant_type: "client_credentials",
-    response_type: "id_token",
-    ...bodyParams,
-  };
-
-  // pass the url encoded value as the body of the post call
-  const urlEncodedParams = new URLSearchParams(params).toString();
-  try {
-    if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
-      throw new Error("MISSING_API_CREDENTIALS");
-    }
-    const auth = Buffer.from(
-      PAYPAL_CLIENT_ID + ":" + PAYPAL_CLIENT_SECRET,
-    ).toString("base64");
-
-    const response = await fetch(`${base}/v1/oauth2/token`, {
-      method: "POST",
-      body: urlEncodedParams,
-      headers: {
-        Authorization: `Basic ${auth}`,
-      },
-    });
-    return handleResponse(response);
-  } catch (error) {
-    console.error("Failed to generate Access Token:", error);
-  }
-};
-
-const generateAccessToken = async () => {
-  const { jsonResponse } = await authenticate();
-  return jsonResponse.access_token;
-};
-
-const VAULT_PATH = "./data/vault.json";
-
-function getVaultId() {
-  try {
-    return JSON.parse(fs.readFileSync(VAULT_PATH, "utf8")).vaultId;
-  } catch {
-    return process.env.PAYPAL_VAULT_ID || null;
-  }
-}
-
-function saveVault(info) {
-  fs.mkdirSync("./data", { recursive: true });
-  fs.writeFileSync(VAULT_PATH, JSON.stringify(info, null, 2));
-}
-
-/**
- * Create an order to start the transaction.
- * @see https://developer.paypal.com/docs/api/orders/v2/#orders_create
- */
-const createOrder = async (cart) => {
-  // use the cart information passed from the front-end to calculate the purchase unit details
-  console.log(
-    "shopping cart information passed from the frontend createOrder() callback:",
-    cart,
+function setUserCookie(req, res, id) {
+  res.append(
+    "Set-Cookie",
+    `uid=${id}.${sign(id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 7}${cookieFlags(req)}`,
   );
+}
 
-  const accessToken = await generateAccessToken();
-  const url = `${base}/v2/checkout/orders`;
-  const payload = {
-    intent: "CAPTURE",
-    purchase_units: [
-      {
-        amount: {
-          currency_code: "USD",
-          value: "1.00",
-        },
-      },
-    ],
-    payment_source: {
-      paypal: {
-        attributes: {
-          vault: {
-            store_in_vault: "ON_SUCCESS",
-            usage_type: "MERCHANT",
-            customer_type: "CONSUMER",
-          },
-        },
-    experience_context: {
-          brand_name: "AI Spending Guard",
-          return_url: "http://example.com",
-          cancel_url: "http://example.com",
-          shipping_preference: "NO_SHIPPING",
-        },
-      },
-    },
-  };
+function clearUserCookie(req, res) {
+  res.append("Set-Cookie", `uid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${cookieFlags(req)}`);
+}
 
-  const response = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      // Uncomment one of these to force an error for negative testing (in sandbox mode only). Documentation:
-      // https://developer.paypal.com/tools/sandbox/negative-testing/request-headers/
-      // "PayPal-Mock-Response": '{"mock_application_codes": "MISSING_REQUIRED_PARAMETER"}'
-      // "PayPal-Mock-Response": '{"mock_application_codes": "PERMISSION_DENIED"}'
-      // "PayPal-Mock-Response": '{"mock_application_codes": "INTERNAL_SERVER_ERROR"}'
-    },
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+/* ---------------- Per-user storage ---------------- */
 
-  return handleResponse(response);
-};
+const userDir = (uid) => `./data/users/${uid}`;
 
-/**
- * Capture payment for the created order to complete the transaction.
- * @see https://developer.paypal.com/docs/api/orders/v2/#orders_capture
- */
-const captureOrder = async (orderID) => {
-  const accessToken = await generateAccessToken();
-  const url = `${base}/v2/checkout/orders/${orderID}/capture`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      // Uncomment one of these to force an error for negative testing (in sandbox mode only). Documentation:
-      // https://developer.paypal.com/tools/sandbox/negative-testing/request-headers/
-      // "PayPal-Mock-Response": '{"mock_application_codes": "INSTRUMENT_DECLINED"}'
-      // "PayPal-Mock-Response": '{"mock_application_codes": "TRANSACTION_REFUSED"}'
-      // "PayPal-Mock-Response": '{"mock_application_codes": "INTERNAL_SERVER_ERROR"}'
-    },
-  });
-
-  return handleResponse(response);
-};
-
-async function handleResponse(response) {
+function readJSON(file, fallback) {
   try {
-    const jsonResponse = await response.json();
-    return {
-      jsonResponse,
-      httpStatusCode: response.status,
-    };
-  } catch (err) {
-    const errorMessage = await response.text();
-    throw new Error(errorMessage);
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
   }
 }
 
-app.post("/api/orders", async (req, res) => {
-  try {
-    // use the cart information passed from the front-end to calculate the order amount detals
-    const { cart } = req.body;
-    const { jsonResponse, httpStatusCode } = await createOrder(cart);
-    res.status(httpStatusCode).json(jsonResponse);
-  } catch (error) {
-    console.error("Failed to create order:", error);
-    res.status(500).json({ error: "Failed to create order." });
-  }
-});
+function writeJSON(file, value) {
+  fs.mkdirSync(file.slice(0, file.lastIndexOf("/")), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
 
-app.post("/api/orders/:orderID/capture", async (req, res) => {
-  try {
-    const { orderID } = req.params;
-    const { jsonResponse, httpStatusCode } = await captureOrder(orderID);
-    console.log("capture response", jsonResponse);
-    const vault = jsonResponse?.payment_source?.paypal?.attributes?.vault;
-    if (vault?.status === "VAULTED" && vault.id) {
-      saveVault({
-        vaultId: vault.id,
-        customerId: vault.customer?.id,
-        savedAt: new Date().toISOString(),
-      });
-      console.log(`PayPal connected. Vault ID saved: ${vault.id}`);
-    }
-    res.status(httpStatusCode).json(jsonResponse);
-  } catch (error) {
-    console.error("Failed to create order:", error);
-    res.status(500).json({ error: "Failed to capture order." });
-  }
-});
-
-// render checkout page with client id & user id token
-app.get("/connect", async (req, res) => {
-  try {
-    const { jsonResponse } = await authenticate({
-      target_customer_id: req.query.customerID,
-    });
-    res.render("checkout", {
-      clientId: PAYPAL_CLIENT_ID,
-      userIdToken: jsonResponse.id_token,
-    });
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});
-
-const LOG_PATH = "./data/log.json";
-
-const RULES = {
+const DEFAULT_RULES = {
   maxPerItemCents: 10,
   dailyBudgetCents: 200,
   approvedSites: ["fair", "greedy", "gossip"],
 };
 
-const RULES_PATH = "./data/rules.json";
-try {
-  const saved = JSON.parse(fs.readFileSync(RULES_PATH, "utf8"));
-  if (Number.isInteger(saved.maxPerItemCents)) RULES.maxPerItemCents = saved.maxPerItemCents;
-  if (Number.isInteger(saved.dailyBudgetCents)) RULES.dailyBudgetCents = saved.dailyBudgetCents;
-} catch {}
-
-function readLog() {
-  try {
-    return JSON.parse(fs.readFileSync(LOG_PATH, "utf8"));
-  } catch {
-    return [];
-  }
+function getRules(uid) {
+  const saved = readJSON(`${userDir(uid)}/rules.json`, {});
+  return {
+    ...DEFAULT_RULES,
+    ...(Number.isInteger(saved.maxPerItemCents) ? { maxPerItemCents: saved.maxPerItemCents } : {}),
+    ...(Number.isInteger(saved.dailyBudgetCents) ? { dailyBudgetCents: saved.dailyBudgetCents } : {}),
+  };
 }
 
-function appendLog(entry) {
-  const log = readLog();
+const getVault = (uid) => (uid ? readJSON(`${userDir(uid)}/vault.json`, {}) : {});
+const readLog = (uid) => readJSON(`${userDir(uid)}/log.json`, []);
+const readPending = (uid) => readJSON(`${userDir(uid)}/pending.json`, []);
+const writePending = (uid, list) => writeJSON(`${userDir(uid)}/pending.json`, list);
+
+function appendLog(uid, entry) {
+  const log = readLog(uid);
   log.push(entry);
-  fs.writeFileSync(LOG_PATH, JSON.stringify(log, null, 2));
-}
-
-function spentTodayCents() {
-  const today = new Date().toISOString().slice(0, 10);
-  return readLog()
-    .filter((e) => e.decision === "paid" && e.reason === "Within all rules" && e.time.startsWith(today))
-    .reduce((sum, e) => sum + e.priceCents, 0);
+  writeJSON(`${userDir(uid)}/log.json`, log);
 }
 
 const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
 
-function checkRules({ site, priceCents }) {
-  if (!RULES.approvedSites.includes(site)) {
+// Budget counts only autonomous spending. Must match the reason string used in /api/pay.
+function spentTodayCents(uid) {
+  const today = new Date().toISOString().slice(0, 10);
+  return readLog(uid)
+    .filter((e) => e.decision === "paid" && e.reason === "Within all rules" && e.time.startsWith(today))
+    .reduce((sum, e) => sum + e.priceCents, 0);
+}
+
+function checkRules(uid, { site, priceCents }) {
+  const rules = getRules(uid);
+  if (!rules.approvedSites.includes(site)) {
     return { allowed: false, reason: `Site "${site}" is not on the approved list` };
   }
-  if (priceCents > RULES.maxPerItemCents) {
+  if (priceCents > rules.maxPerItemCents) {
     return {
       allowed: false,
-      reason: `Price ${dollars(priceCents)} exceeds per-item limit of ${dollars(RULES.maxPerItemCents)}`,
+      reason: `Price ${dollars(priceCents)} exceeds per-item limit of ${dollars(rules.maxPerItemCents)}`,
     };
   }
-  const spent = spentTodayCents();
-  if (spent + priceCents > RULES.dailyBudgetCents) {
+  const spent = spentTodayCents(uid);
+  if (spent + priceCents > rules.dailyBudgetCents) {
     return {
       allowed: false,
-      reason: `Would exceed daily budget: ${dollars(spent)} of ${dollars(RULES.dailyBudgetCents)} already spent`,
+      reason: `Would exceed daily budget: ${dollars(spent)} of ${dollars(rules.dailyBudgetCents)} already spent`,
     };
   }
   return { allowed: true };
 }
 
-async function chargeVault(amount) {
+/* ---------------- Agent tokens: one per run, tied to one user ---------------- */
+
+const agentTokens = new Map();
+
+function agentUser(req) {
+  const agentRoute =
+    (req.method === "POST" && req.path === "/api/pay") ||
+    (req.method === "GET" && /^\/api\/requests\/[^/]+$/.test(req.path));
+  if (!agentRoute) return null;
+  return agentTokens.get(req.get("X-Agent-Token") || "") || null;
+}
+
+/* ---------------- Gate: who is this request from? ---------------- */
+
+const PUBLIC_PATHS = new Set(["/login.html", "/api/vault/start", "/api/vault/return", "/api/logout"]);
+
+app.use((req, res, next) => {
+  const agentUid = agentUser(req);
+  if (agentUid) {
+    req.uid = agentUid;
+    return next();
+  }
+  req.uid = getUserId(req);
+  if (PUBLIC_PATHS.has(req.path)) return next();
+  if (req.uid && getVault(req.uid).vaultId) return next();
+  if (req.path.startsWith("/api/")) {
+    return res.status(401).json({ error: "Connect your PayPal first" });
+  }
+  res.redirect("/login.html");
+});
+
+app.use(express.static("client"));
+app.use(express.json());
+
+/* ---------------- Connect PayPal (Vault setup tokens) ---------------- */
+
+app.post("/api/vault/start", async (req, res) => {
+  try {
+    let uid = req.uid;
+    if (!uid) {
+      uid = crypto.randomUUID();
+      setUserCookie(req, res, uid);
+    }
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const accessToken = await generateAccessToken();
+    const response = await fetch(`${base}/v3/vault/setup-tokens`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "PayPal-Request-Id": `setup-${uid}-${Date.now()}`,
+      },
+      body: JSON.stringify({
+        payment_source: {
+          paypal: {
+            description: "AI Spending Guard: your agent may pay only within your limits",
+            usage_type: "MERCHANT",
+            customer_type: "CONSUMER",
+            permit_multiple_payment_tokens: true,
+            experience_context: {
+              brand_name: "AI Spending Guard",
+              return_url: `${origin}/api/vault/return`,
+              cancel_url: `${origin}/login.html?cancelled=1`,
+            },
+          },
+        },
+      }),
+    });
+    const data = await response.json();
+    const approveUrl = data?.links?.find((l) => l.rel === "approve")?.href;
+    if (!response.ok || !data.id || !approveUrl) {
+      console.error("Setup token failed:", JSON.stringify(data));
+      return res.status(502).json({ error: data?.message || "PayPal could not start the connection" });
+    }
+    writeJSON(`${userDir(uid)}/setup.json`, { setupTokenId: data.id, createdAt: new Date().toISOString() });
+    res.json({ approveUrl });
+  } catch (err) {
+    console.error("Vault start error:", err);
+    res.status(500).json({ error: "Could not start the PayPal connection" });
+  }
+});
+
+app.get("/api/vault/return", async (req, res) => {
+  const uid = req.uid;
+  const setup = uid ? readJSON(`${userDir(uid)}/setup.json`, null) : null;
+  if (!setup) return res.redirect("/login.html?error=session");
+  try {
+    const accessToken = await generateAccessToken();
+    const response = await fetch(`${base}/v3/vault/payment-tokens`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "PayPal-Request-Id": `pt-${setup.setupTokenId}`,
+      },
+      body: JSON.stringify({
+        payment_source: { token: { id: setup.setupTokenId, type: "SETUP_TOKEN" } },
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.id) {
+      console.error("Payment token failed:", JSON.stringify(data));
+      return res.redirect("/login.html?error=paypal");
+    }
+    const email = data.payment_source?.paypal?.email_address || "";
+    writeJSON(`${userDir(uid)}/vault.json`, {
+      vaultId: data.id,
+      customerId: data.customer?.id,
+      email,
+      connectedAt: new Date().toISOString(),
+    });
+    fs.rmSync(`${userDir(uid)}/setup.json`, { force: true });
+    console.log(`USER ${uid.slice(0, 8)} connected PayPal ${email}`);
+    res.redirect("/dashboard.html");
+  } catch (err) {
+    console.error("Vault return error:", err);
+    res.redirect("/login.html?error=paypal");
+  }
+});
+
+app.post("/api/logout", (req, res) => {
+  clearUserCookie(req, res);
+  res.json({ ok: true });
+});
+
+app.post("/api/disconnect", async (req, res) => {
+  const vault = getVault(req.uid);
+  if (vault.vaultId) {
+    try {
+      const accessToken = await generateAccessToken();
+      await fetch(`${base}/v3/vault/payment-tokens/${encodeURIComponent(vault.vaultId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (err) {
+      console.error("Vault delete error:", err);
+    }
+  }
+  fs.rmSync(userDir(req.uid), { recursive: true, force: true });
+  clearUserCookie(req, res);
+  console.log(`USER ${req.uid.slice(0, 8)} disconnected PayPal`);
+  res.json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  const vault = getVault(req.uid);
+  res.json({ connected: !!vault.vaultId, email: vault.email || "" });
+});
+
+app.get("/api/vault-status", (req, res) => {
+  const vault = getVault(req.uid);
+  res.json({ connected: !!vault.vaultId, email: vault.email || "" });
+});
+
+/* ---------------- Payments ---------------- */
+
+async function chargeVault(vaultId, amount) {
   const accessToken = await generateAccessToken();
   const response = await fetch(`${base}/v2/checkout/orders`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
-      "PayPal-Request-Id": `charge-${Date.now()}`,
+      "PayPal-Request-Id": `charge-${crypto.randomUUID()}`,
     },
     body: JSON.stringify({
       intent: "CAPTURE",
       purchase_units: [{ amount: { currency_code: "USD", value: amount } }],
-      payment_source: { paypal: { vault_id: getVaultId() } },
+      payment_source: { paypal: { vault_id: vaultId } },
     }),
   });
   const data = await response.json();
   const captureId = data?.purchase_units?.[0]?.payments?.captures?.[0]?.id;
-  return { ok: data.status === "COMPLETED" && !!captureId, status: data.status, captureId };
+  return { ok: data.status === "COMPLETED" && !!captureId, status: data.status || data.name, captureId };
 }
 
-const PENDING_PATH = "./data/pending.json";
+const SITE_PAYEES = {
+  fair: process.env.FAIR_PAYEE,
+};
 
-function readPending() {
-  try {
-    return JSON.parse(fs.readFileSync(PENDING_PATH, "utf8"));
-  } catch {
-    return [];
-  }
+async function payoutToSite(site, amount) {
+  const receiver = SITE_PAYEES[site];
+  if (!receiver) return { ok: false, skipped: true };
+  const accessToken = await generateAccessToken();
+  const response = await fetch(`${base}/v1/payments/payouts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      sender_batch_header: {
+        sender_batch_id: `article-${site}-${crypto.randomUUID()}`,
+        email_subject: "Article payment from AI Spending Guard",
+      },
+      items: [
+        {
+          recipient_type: "EMAIL",
+          amount: { value: amount, currency: "USD" },
+          receiver,
+          note: `Article purchase on ${site}`,
+        },
+      ],
+    }),
+  });
+  const data = await response.json();
+  const batchId = data?.batch_header?.payout_batch_id;
+  return { ok: response.ok && !!batchId, batchId, receiver, reason: data?.message };
 }
 
-function writePending(list) {
-  fs.writeFileSync(PENDING_PATH, JSON.stringify(list, null, 2));
-}
+const payoutFields = (payout) => ({
+  payoutTo: payout.receiver,
+  payoutBatchId: payout.batchId,
+  payoutNote: payout.skipped ? undefined : payout.ok ? "Sent to site" : `Payout failed: ${payout.reason}`,
+});
+
+/* ---------------- AI advisor (veto only) ---------------- */
 
 const GEMINI_MODEL = "gemini-3.5-flash";
 
@@ -394,55 +420,26 @@ Respond with JSON only: {"worthIt": true or false, "reason": "one short sentence
   }
 }
 
-function createPending(entry, reason) {
-  const request = { id: `req-${Date.now()}`, ...entry, reason, status: "pending" };
-  const pending = readPending();
-  pending.push(request);
-  writePending(pending);
-  appendLog({ ...entry, decision: "needs approval", reason, requestId: request.id });
-  console.log(`PENDING ${entry.site} ${entry.price}: ${reason} (${request.id})`);
-  return request;
-}
-const SITE_PAYEES = {
-  fair: process.env.FAIR_PAYEE,
-};
+/* ---------------- The guard ---------------- */
 
-async function payoutToSite(site, amount) {
-  const receiver = SITE_PAYEES[site];
-  if (!receiver) return { ok: false, skipped: true };
-  const accessToken = await generateAccessToken();
-  const response = await fetch(`${base}/v1/payments/payouts`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      sender_batch_header: {
-        sender_batch_id: `article-${site}-${Date.now()}`,
-        email_subject: "Article payment from AI Spending Guard",
-      },
-      items: [
-        {
-          recipient_type: "EMAIL",
-          amount: { value: amount, currency: "USD" },
-          receiver,
-          note: `Article purchase on ${site}`,
-        },
-      ],
-    }),
-  });
-  const data = await response.json();
-  const batchId = data?.batch_header?.payout_batch_id;
-  return { ok: response.ok && !!batchId, batchId, receiver, reason: data?.message };
+function createPending(uid, entry, reason) {
+  const request = { id: `req-${crypto.randomUUID()}`, ...entry, reason, status: "pending" };
+  const pending = readPending(uid);
+  pending.push(request);
+  writePending(uid, pending);
+  appendLog(uid, { ...entry, decision: "needs approval", reason, requestId: request.id });
+  console.log(`PENDING ${entry.site} ${entry.price}: ${reason}`);
+  return request;
 }
 
 app.post("/api/pay", async (req, res) => {
+  const uid = req.uid;
+  const vaultId = getVault(uid).vaultId;
+  if (!vaultId) {
+    return res.status(409).json({ error: "PayPal not connected." });
+  }
   const { site, price, description, task } = req.body ?? {};
   const priceCents = Math.round(Number(price) * 100);
-  if (!getVaultId()) {
-    return res.status(409).json({ error: "PayPal not connected. Owner: open /connect to connect." });
-  }
   if (!site || !Number.isFinite(priceCents) || priceCents <= 0) {
     return res.status(400).json({ error: "Need a site and a positive price" });
   }
@@ -456,72 +453,71 @@ app.post("/api/pay", async (req, res) => {
     priceCents,
   };
 
-  const check = checkRules({ site, priceCents });
+  const check = checkRules(uid, { site, priceCents });
   if (!check.allowed) {
-    const request = createPending(entry, check.reason);
+    const request = createPending(uid, entry, check.reason);
     return res.status(202).json({ decision: "pending", requestId: request.id, reason: check.reason });
   }
 
   const ai = await checkWorthIt({ task, site, price: entry.price, description });
   if (ai.worthIt === false) {
-    appendLog({ ...entry, decision: "skipped by AI", reason: ai.reason });
+    appendLog(uid, { ...entry, decision: "skipped by AI", reason: ai.reason });
     console.log(`SKIPPED ${site} ${entry.price}: ${ai.reason}`);
     return res.json({ decision: "skipped", reason: ai.reason });
   }
   if (ai.worthIt === null) {
-    const request = createPending(entry, ai.reason);
+    const request = createPending(uid, entry, ai.reason);
     return res.status(202).json({ decision: "pending", requestId: request.id, reason: ai.reason });
   }
 
   try {
-    const result = await chargeVault(entry.price);
+    const result = await chargeVault(vaultId, entry.price);
     if (!result.ok) {
-      appendLog({ ...entry, decision: "failed", reason: `PayPal status ${result.status}` });
+      appendLog(uid, { ...entry, decision: "failed", reason: `PayPal status ${result.status}` });
       return res.status(502).json({ decision: "failed", reason: `PayPal status ${result.status}` });
     }
     const payout = await payoutToSite(site, entry.price);
-    appendLog({
+    appendLog(uid, {
       ...entry,
       decision: "paid",
       reason: "Within all rules",
       aiReason: ai.reason,
       captureId: result.captureId,
-      payoutTo: payout.receiver,
-      payoutBatchId: payout.batchId,
-      payoutNote: payout.skipped ? undefined : payout.ok ? "Sent to site" : `Payout failed: ${payout.reason}`,
+      ...payoutFields(payout),
     });
     console.log(`PAID ${site} ${entry.price}: ${result.captureId}${payout.ok ? ` → payout ${payout.batchId}` : ""}`);
-    res.json({ decision: "paid", captureId: result.captureId, aiReason: ai.reason, payoutBatchId: payout.batchId });
+    res.json({ decision: "paid", captureId: result.captureId, aiReason: ai.reason });
   } catch (err) {
     console.error("Pay failed:", err);
-    appendLog({ ...entry, decision: "failed", reason: err.message });
+    appendLog(uid, { ...entry, decision: "failed", reason: err.message });
     if (!res.headersSent) res.status(500).json({ decision: "failed", reason: err.message });
   }
 });
 
 app.get("/api/requests", (req, res) => {
-  res.json(readPending());
+  res.json(readPending(req.uid));
 });
 
 app.get("/api/requests/:id", (req, res) => {
-  const request = readPending().find((r) => r.id === req.params.id);
+  const request = readPending(req.uid).find((r) => r.id === req.params.id);
   if (!request) return res.status(404).json({ error: "No such request" });
   res.json(request);
 });
 
 app.post("/api/requests/:id/:action", async (req, res) => {
+  const uid = req.uid;
   const { id, action } = req.params;
   if (!["approve", "deny"].includes(action)) {
     return res.status(400).json({ error: "Action must be approve or deny" });
   }
-  const pending = readPending();
+  const pending = readPending(uid);
   const request = pending.find((r) => r.id === id);
   if (!request) return res.status(404).json({ error: "No such request" });
   if (request.status !== "pending") {
     return res.status(409).json({ error: `Already ${request.status}` });
   }
 
-  const base = {
+  const logBase = {
     time: new Date().toISOString(),
     site: request.site,
     description: request.description,
@@ -532,111 +528,49 @@ app.post("/api/requests/:id/:action", async (req, res) => {
 
   if (action === "deny") {
     request.status = "denied";
-    writePending(pending);
-    appendLog({ ...base, decision: "denied", reason: "Owner denied" });
-    console.log(`DENIED ${request.site} ${request.price} (${id})`);
+    writePending(uid, pending);
+    appendLog(uid, { ...logBase, decision: "denied", reason: "Owner denied" });
+    console.log(`DENIED ${request.site} ${request.price}`);
     return res.json(request);
   }
 
   request.status = "charging";
-  writePending(pending);
+  writePending(uid, pending);
   try {
-    const result = await chargeVault(request.price);
+    const result = await chargeVault(getVault(uid).vaultId, request.price);
     if (!result.ok) {
       request.status = "failed";
-      writePending(pending);
-      appendLog({ ...base, decision: "failed", reason: `PayPal status ${result.status}` });
+      writePending(uid, pending);
+      appendLog(uid, { ...logBase, decision: "failed", reason: `PayPal status ${result.status}` });
       return res.status(502).json(request);
     }
+    const payout = await payoutToSite(request.site, request.price);
     request.status = "approved";
     request.captureId = result.captureId;
-    writePending(pending);
-    appendLog({ ...base, decision: "paid", reason: "Approved by owner", captureId: result.captureId });
+    writePending(uid, pending);
+    appendLog(uid, {
+      ...logBase,
+      decision: "paid",
+      reason: "Approved by owner",
+      captureId: result.captureId,
+      ...payoutFields(payout),
+    });
     console.log(`APPROVED ${request.site} ${request.price}: ${result.captureId}`);
     res.json(request);
   } catch (err) {
     request.status = "failed";
-    writePending(pending);
-    appendLog({ ...base, decision: "failed", reason: err.message });
+    writePending(uid, pending);
+    appendLog(uid, { ...logBase, decision: "failed", reason: err.message });
     res.status(500).json(request);
   }
 });
 
 app.get("/api/log", (req, res) => {
   res.json({
-    entries: readLog().reverse(),
-    spentTodayCents: spentTodayCents(),
-    rules: RULES,
+    entries: readLog(req.uid).reverse(),
+    spentTodayCents: spentTodayCents(req.uid),
+    rules: getRules(req.uid),
   });
-});
-
-app.get("/api/vault-status", (req, res) => {
-  res.json({ connected: !!getVaultId() });
-});
-
-const PAYWALL_URL = process.env.PAYWALL_URL || "http://localhost:9000";
-const GUARD_URL = process.env.GUARD_URL || `http://localhost:${PORT}`;
-
-app.get("/", (req, res) => res.redirect("/dashboard.html"));
-
-app.get("/api/config", (req, res) => {
-  res.json({ paywallUrl: PAYWALL_URL });
-});
-
-let agentRun = { running: false, output: "", startedAt: null };
-const runTimes = [];
-
-app.post("/api/run-agent", (req, res) => {
-  if (agentRun.running) {
-    return res.status(409).json({ error: "The agent is already running" });
-  }
-  const hourAgo = Date.now() - 60 * 60 * 1000;
-  while (runTimes.length && runTimes[0] < hourAgo) runTimes.shift();
-  if (runTimes.length >= 10) {
-    return res.status(429).json({ error: "Demo limit reached: 10 agent runs per hour" });
-  }
-  const task =
-    String(req.body?.task || "").trim().slice(0, 200) ||
-    "Research how AI agents pay for online content";
-  runTimes.push(Date.now());
-  agentRun = { running: true, output: "", startedAt: new Date().toISOString() };
-
-  const child = spawn(process.execPath, ["agent.js"], {
-        env: { PATH: process.env.PATH, AGENT_TASK: task, GUARD_URL, PAYWALL_URL, AGENT_TOKEN },
-  });
-  const append = (chunk) => {
-    agentRun.output = (agentRun.output + chunk.toString()).slice(-20000);
-  };
-  child.stdout.on("data", append);
-  child.stderr.on("data", append);
-  child.on("close", (code) => {
-    agentRun.running = false;
-    append(`\n[agent finished, exit code ${code}]\n`);
-  });
-  res.json({ started: true, task });
-});
-
-app.get("/api/agent-run", (req, res) => {
-  res.json(agentRun);
-});
-
-app.post("/api/login", (req, res) => {
-  const { username, password } = req.body ?? {};
-  if (OWNER_PASSWORD && (username !== OWNER_USER || password !== OWNER_PASSWORD)) {
-    return res.status(401).json({ error: "Wrong username or password" });
-  }
-  const expires = String(Date.now() + 12 * 60 * 60 * 1000);
-  const secure = req.secure || req.get("x-forwarded-proto") === "https";
-  res.set(
-    "Set-Cookie",
-    `owner_session=${expires}.${sign(expires)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${secure ? "; Secure" : ""}`,
-  );
-  res.json({ ok: true });
-});
-
-app.post("/api/logout", (req, res) => {
-  res.set("Set-Cookie", "owner_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
-  res.json({ ok: true });
 });
 
 app.post("/api/rules", (req, res) => {
@@ -651,11 +585,71 @@ app.post("/api/rules", (req, res) => {
   if (perItem > daily) {
     return res.status(400).json({ error: "The per-item limit can't be higher than the daily budget" });
   }
-  RULES.maxPerItemCents = perItem;
-  RULES.dailyBudgetCents = daily;
-  fs.writeFileSync(RULES_PATH, JSON.stringify({ maxPerItemCents: perItem, dailyBudgetCents: daily }, null, 2));
-  console.log(`LIMITS updated: ${dollars(perItem)} per item, ${dollars(daily)} per day`);
-  res.json({ ok: true, rules: RULES });
+  writeJSON(`${userDir(req.uid)}/rules.json`, { maxPerItemCents: perItem, dailyBudgetCents: daily });
+  console.log(`LIMITS updated for ${req.uid.slice(0, 8)}: ${dollars(perItem)} per item, ${dollars(daily)} per day`);
+  res.json({ ok: true, rules: getRules(req.uid) });
+});
+
+/* ---------------- Running the agent ---------------- */
+
+const PAYWALL_URL = process.env.PAYWALL_URL || "http://localhost:9000";
+const GUARD_URL = process.env.GUARD_URL || `http://localhost:${PORT}`;
+
+app.get("/", (req, res) => res.redirect("/dashboard.html"));
+
+app.get("/api/config", (req, res) => {
+  res.json({ paywallUrl: PAYWALL_URL });
+});
+
+const agentRuns = new Map();
+const runTimes = new Map();
+const allRunTimes = [];
+
+app.post("/api/run-agent", (req, res) => {
+  const uid = req.uid;
+  const current = agentRuns.get(uid);
+  if (current?.running) {
+    return res.status(409).json({ error: "Your agent is already running" });
+  }
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  const mine = (runTimes.get(uid) || []).filter((t) => t > hourAgo);
+  while (allRunTimes.length && allRunTimes[0] < hourAgo) allRunTimes.shift();
+  if (mine.length >= 10) {
+    return res.status(429).json({ error: "Demo limit reached: 10 agent runs per hour" });
+  }
+  if (allRunTimes.length >= 60) {
+    return res.status(429).json({ error: "The demo is busy. Please try again in a few minutes." });
+  }
+  const task =
+    String(req.body?.task || "").trim().slice(0, 200) ||
+    "Research how AI agents pay for online content";
+  mine.push(Date.now());
+  runTimes.set(uid, mine);
+  allRunTimes.push(Date.now());
+
+  const run = { running: true, output: "", startedAt: new Date().toISOString() };
+  agentRuns.set(uid, run);
+  const token = crypto.randomUUID();
+  agentTokens.set(token, uid);
+
+  const child = spawn(process.execPath, ["agent.js"], {
+    env: { PATH: process.env.PATH, AGENT_TASK: task, GUARD_URL, PAYWALL_URL, AGENT_TOKEN: token },
+  });
+  const append = (chunk) => {
+    run.output = (run.output + chunk.toString()).slice(-20000);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  child.on("close", (code) => {
+    run.running = false;
+    agentTokens.delete(token);
+    append(`\n[agent finished, exit code ${code}]\n`);
+  });
+  res.json({ started: true, task });
+});
+
+app.get("/api/agent-run", (req, res) => {
+  res.json(agentRuns.get(req.uid) || { running: false, output: "", startedAt: null });
 });
 
 app.listen(PORT, () => {

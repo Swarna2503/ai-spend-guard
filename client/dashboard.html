@@ -102,6 +102,9 @@
     .b-bad { background: var(--bad-soft); color: var(--bad); }
     .mono { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
     footer { color: var(--muted); font-size: 12.5px; text-align: center; padding: 20px 0 36px; }
+    .limits { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .limits label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .limits input { width: 120px; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 
     @media (max-width: 900px) {
       .grid { grid-template-columns: 1fr; }
@@ -109,9 +112,6 @@
       .hero h1 { font-size: 24px; }
       .task-row { flex-direction: column; }
     }
-    .limits { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-    .limits label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
-    .limits input { width: 120px; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -121,8 +121,8 @@
       <div class="top-right">
         <span id="paypal" class="pill"><span class="dot"></span><span id="paypalText">Checking PayPal...</span></span>
         <span class="budget">Spent by agent today <span class="bar"><span id="barFill"></span></span><b id="spentText">-</b></span>
-        <a id="connect" class="btn small" href="/connect" hidden>Connect PayPal</a>
-        <button id="logout" class="btn small">Log out</button>
+        <button id="disconnect" class="btn small">Disconnect PayPal</button>
+        <button id="logout" class="btn small">Sign out</button>
       </div>
     </div>
   </div>
@@ -196,7 +196,6 @@
   </div>
 
   <script>
-    let limitsLoaded = false;
     const $ = (id) => document.getElementById(id);
     const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
     const SITES = {
@@ -206,6 +205,7 @@
     };
     const siteName = (key) => (SITES[key] ? SITES[key].name : key);
     const LABELS = { "paid": "Paid", "skipped by AI": "Skipped by AI", "needs approval": "Needs approval", "denied": "Denied", "blocked": "Blocked", "failed": "Failed" };
+    let limitsLoaded = false;
 
     function el(tag, className, text) {
       const node = document.createElement(tag);
@@ -353,20 +353,20 @@
         ]);
         const connected = vault.data.connected;
         $("paypal").className = connected ? "pill ok" : "pill off";
-        $("paypalText").textContent = connected ? "PayPal connected" : "PayPal not connected";
-        $("connect").hidden = connected;
+        $("paypalText").textContent = connected
+          ? `PayPal connected${vault.data.email ? ` · ${vault.data.email}` : ""}`
+          : "PayPal not connected";
 
         const spent = log.data.spentTodayCents;
         const budget = log.data.rules.dailyBudgetCents;
         $("spentText").textContent = `${dollars(spent)} of ${dollars(budget)}`;
         $("barFill").style.width = `${Math.min(100, (spent / budget) * 100)}%`;
-
-                if (!limitsLoaded) {
+        if (!limitsLoaded) {
           $("limitItem").value = (log.data.rules.maxPerItemCents / 100).toFixed(2);
           $("limitDay").value = (log.data.rules.dailyBudgetCents / 100).toFixed(2);
           limitsLoaded = true;
         }
-        
+
         const pending = reqs.data.filter((r) => r.status === "pending");
         renderPending(pending);
         renderResults(log.data.entries, run.data);
@@ -408,6 +408,12 @@
       location.href = "/login.html";
     };
 
+    $("disconnect").onclick = async () => {
+      if (!confirm("Disconnect your PayPal? This deletes the saved payment method and your history in this demo.")) return;
+      await fetch("/api/disconnect", { method: "POST" });
+      location.href = "/login.html";
+    };
+
     $("saveLimits").onclick = async () => {
       $("limitsMsg").textContent = "Saving...";
       const { status, data } = await getJSON("/api/rules", {
@@ -418,6 +424,8 @@
       $("limitsMsg").textContent = status === 200 ? "Saved. The agent uses these limits from its next purchase." : data.error;
       refresh();
     };
+    $("limitItem").oninput = () => ($("limitsMsg").textContent = "Not saved yet.");
+    $("limitDay").oninput = () => ($("limitsMsg").textContent = "Not saved yet.");
 
     loadConfig();
     refresh();

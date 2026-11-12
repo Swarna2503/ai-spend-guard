@@ -3,67 +3,74 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · AI Spending Guard</title>
+  <title>Connect PayPal · AI Spending Guard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg: #f5f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --brand: #4f46e5; --brand-dark: #4338ca; --brand-soft: #eef2ff; --bad: #b91c1c; }
+    :root { --bg: #f5f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --brand: #4f46e5; --brand-dark: #4338ca; --brand-soft: #eef2ff; --bad: #b91c1c; --ok: #047857; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; font-family: Inter, system-ui, -apple-system, sans-serif; background: radial-gradient(1200px 600px at 10% -10%, #e0e7ff, transparent), radial-gradient(900px 500px at 110% 110%, #ede9fe, transparent), var(--bg); color: var(--text); }
-    .card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: 0 10px 40px rgba(16, 24, 40, .08); }
+    .card { width: 100%; max-width: 460px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 30px; box-shadow: 0 10px 40px rgba(16, 24, 40, .08); }
     .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; margin-bottom: 22px; }
     .logo-mark { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #4f46e5, #7c3aed); display: grid; place-items: center; color: #fff; }
-    h1 { font-size: 22px; margin: 0 0 6px; }
-    p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
-    label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
-    input { width: 100%; font: inherit; font-size: 15px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; }
-    input:focus { outline: 3px solid var(--brand-soft); border-color: var(--brand); }
-    button { width: 100%; font: inherit; font-size: 15px; font-weight: 600; padding: 12px; border-radius: 10px; border: 0; background: var(--brand); color: #fff; cursor: pointer; }
-    button:hover { background: var(--brand-dark); }
+    h1 { font-size: 24px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.01em; }
+    p { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 18px; }
+    ul { margin: 0 0 22px; padding: 0; list-style: none; display: grid; gap: 10px; }
+    li { display: flex; gap: 10px; font-size: 14px; line-height: 1.45; }
+    li span { flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+    button { width: 100%; font: inherit; font-size: 15px; font-weight: 600; padding: 13px; border-radius: 10px; border: 0; background: #0070ba; color: #fff; cursor: pointer; }
+    button:hover { background: #005ea6; }
     button:disabled { opacity: .6; cursor: default; }
-    .error { color: var(--bad); font-size: 13.5px; min-height: 20px; margin: 10px 0 0; }
-    .note { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; }
+    .msg { font-size: 13.5px; min-height: 20px; margin: 12px 0 0; }
+    .msg.bad { color: var(--bad); }
+    .note { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; }
+    code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   </style>
 </head>
 <body>
   <main class="card">
     <div class="logo"><div class="logo-mark">◆</div>AI Spending Guard</div>
-    <h1>Owner sign in</h1>
-    <p>This dashboard controls how a demo AI agent spends money with PayPal. Sandbox only: play money, nothing real is charged.</p>
-    <form id="form">
-      <label for="username">Username</label>
-      <input id="username" name="username" autocomplete="username" required>
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-      <button id="submit" type="submit">Sign in</button>
-      <div id="error" class="error" role="alert"></div>
-    </form>
-    <p class="note">Judges: the demo login is in the Devpost testing instructions.</p>
+    <h1>Give your AI agent a budget, not your wallet.</h1>
+    <p>Connect your PayPal once. Your agent can then pay news sites a few cents per article on its own, but only within your limits. Anything bigger waits for you.</p>
+    <ul>
+      <li><span>1</span>Connect a PayPal sandbox account (play money, nothing real is charged).</li>
+      <li><span>2</span>Set your limits and send your agent on a task.</li>
+      <li><span>3</span>Approve or deny anything the guard pauses.</li>
+    </ul>
+    <button id="connect">Connect PayPal (sandbox)</button>
+    <div id="msg" class="msg" role="status"></div>
+    <p class="note">Log in to PayPal with a sandbox <b>Personal</b> account (<code>…@personal.example.com</code>). Judges: a demo buyer login is in the Devpost testing instructions. You can disconnect at any time from your dashboard.</p>
   </main>
   <script>
-    document.getElementById("form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const button = document.getElementById("submit");
-      const error = document.getElementById("error");
+    const msg = document.getElementById("msg");
+    const params = new URLSearchParams(location.search);
+    if (params.get("cancelled")) msg.textContent = "Connection cancelled. You can try again.";
+    if (params.get("error") === "paypal") {
+      msg.className = "msg bad";
+      msg.textContent = "PayPal didn't finish the connection. Please try again with a sandbox Personal account.";
+    }
+    if (params.get("error") === "session") {
+      msg.className = "msg bad";
+      msg.textContent = "Your session expired during the connection. Please try again.";
+    }
+
+    document.getElementById("connect").addEventListener("click", async () => {
+      const button = document.getElementById("connect");
       button.disabled = true;
-      error.textContent = "";
+      msg.className = "msg";
+      msg.textContent = "Opening PayPal...";
       try {
-        const res = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: document.getElementById("username").value,
-            password: document.getElementById("password").value,
-          }),
-        });
-        if (res.ok) {
-          location.href = "/dashboard.html";
+        const res = await fetch("/api/vault/start", { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.approveUrl) {
+          location.href = data.approveUrl;
           return;
         }
-        const data = await res.json().catch(() => ({}));
-        error.textContent = data.error || "Sign in failed.";
+        msg.className = "msg bad";
+        msg.textContent = data.error || "Could not start the PayPal connection.";
       } catch {
-        error.textContent = "Could not reach the server.";
+        msg.className = "msg bad";
+        msg.textContent = "Could not reach the server.";
       }
       button.disabled = false;
     });
