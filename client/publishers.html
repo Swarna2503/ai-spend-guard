@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>For publishers · AI Spending Guard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #f5f6fb; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --brand: #4f46e5; --brand-soft: #eef2ff; --ok: #047857; --ok-soft: #ecfdf5; --warn: #92400e; --warn-soft: #fffbeb; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, sans-serif; background: radial-gradient(1200px 600px at 10% -10%, #e0e7ff, transparent), var(--bg); color: var(--text); }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 28px 16px 60px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: inherit; text-decoration: none; }
+    .logo-mark { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #4f46e5, #7c3aed); display: grid; place-items: center; color: #fff; }
+    .nav a { color: var(--brand); font-weight: 600; font-size: 14px; text-decoration: none; margin-left: 16px; }
+    h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -.02em; }
+    .lead { color: var(--muted); font-size: 16px; line-height: 1.6; margin: 0 0 26px; max-width: 680px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; box-shadow: 0 6px 24px rgba(16, 24, 40, .05); margin-bottom: 20px; }
+    h2 { font-size: 18px; margin: 0 0 6px; }
+    .sub { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 18px; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .step { background: var(--brand-soft); border-radius: 12px; padding: 16px; font-size: 14px; line-height: 1.5; }
+    .step b { display: block; color: var(--brand); margin-bottom: 4px; }
+    .sites { display: grid; gap: 12px; }
+    .site { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); }
+    .site:first-child { border-top: 0; padding-top: 0; }
+    .site-name { font-weight: 600; }
+    .site-desc { color: var(--muted); font-size: 13.5px; }
+    .price { font-weight: 700; background: #f3f4f6; border-radius: 8px; padding: 4px 10px; font-size: 14px; }
+    .badge { grid-column: 1 / -1; justify-self: start; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 10px; }
+    .badge.ok { background: var(--ok-soft); color: var(--ok); }
+    .badge.warn { background: var(--warn-soft); color: var(--warn); }
+    .site a { grid-column: 1 / -1; font-size: 13px; color: var(--brand); text-decoration: none; }
+    form { display: grid; gap: 12px; }
+    label { font-size: 13px; font-weight: 600; display: grid; gap: 6px; }
+    input { font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #f9fafb; }
+    input { background: #fff; }
+    button, .btn { font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 10px; border: 0; background: var(--brand); color: #fff; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
+    button:disabled { opacity: .6; cursor: default; }
+    .del { background: none; color: #b91c1c; padding: 0; font-size: 13px; grid-column: 1 / -1; justify-self: start; }
+    .msg { font-size: 13.5px; min-height: 18px; color: var(--muted); }
+    .msg.bad { color: #b91c1c; }
+    .empty { color: var(--muted); font-size: 14px; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <a class="logo" href="/"><div class="logo-mark">◆</div>AI Spending Guard</a>
+      <div class="nav"><a href="/login.html">For agent owners</a><a href="/dashboard.html">Dashboard</a></div>
+    </div>
+
+    <h1>People read free. AI agents pay.</h1>
+    <p class="lead">AI agents read your articles but never see your ads, so you earn nothing from them. Put your articles behind this paywall: human readers pass a quick check and read free, while declared AI agents get a price and pay you through PayPal.</p>
+
+    <div class="card">
+      <h2>How it works for a publisher</h2>
+      <p class="sub">The same flow the three demo sites below use.</p>
+      <div class="steps">
+        <div class="step"><b>1. Set a price</b>You choose what an AI agent pays per article. The AI never sets prices.</div>
+        <div class="step"><b>2. Agents get a 402</b>A declared agent receives an HTTP 402 offer. People get a human check and read free; undeclared bots are challenged.</div>
+        <div class="step"><b>3. You get paid</b>The platform verifies the PayPal payment, unlocks the article, and sends the money to your own PayPal account.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sites on the network (demo)</h2>
+      <p class="sub">Three demo publishers, set up so you can watch the guard make different decisions. Prices are fixed by each site.</p>
+      <div class="sites" id="sites"></div>
+    </div>
+
+    <div class="card">
+      <h2>List your site</h2>
+      <p class="sub">Log in with PayPal, then add an article and the price an AI agent should pay. Listings are saved for review and are <b>not yet sold to agents</b>. Going live would need a check that you own the site.</p>
+      <div id="needConnect" hidden>
+        <a class="btn" href="/login.html">Connect PayPal to list your site</a>
+      </div>
+      <form id="listForm" hidden>
+        <div class="row">
+          <label>Site name<input id="fName" maxlength="60" placeholder="My News" required></label>
+          <label>Price per article (USD)<input id="fPrice" type="number" step="0.01" min="0.01" max="100" placeholder="0.05" required></label>
+        </div>
+        <label>Article URL<input id="fUrl" type="url" maxlength="300" placeholder="https://example.com/article" required></label>
+        <button id="fSubmit" type="submit">Save listing</button>
+        <div id="fMsg" class="msg" role="status"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Creator listings</h2>
+      <p class="sub">Sites creators have added. Saved, not yet sold to agents.</p>
+      <div class="sites" id="listings"></div>
+    </div>
+  </div>
+
+  <script>
+    const SITES = [
+      { id: "fair", name: "Fair News", desc: "Useful for the task, fair price", price: "0.05", paid: true },
+      { id: "gossip", name: "Gossip Daily", desc: "Off-topic for most tasks", price: "0.05", paid: false },
+      { id: "greedy", name: "Greedy News", desc: "The same article at a ridiculous price", price: "50.00", paid: false },
+    ];
+    function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; }
+
+    async function render() {
+      let paywallUrl = "";
+      try { paywallUrl = (await (await fetch("/api/config")).json()).paywallUrl || ""; } catch {}
+      const box = document.getElementById("sites");
+      for (const s of SITES) {
+        const row = el("div", "site");
+        const info = el("div");
+        info.append(el("div", "site-name", s.name), el("div", "site-desc", s.desc));
+        row.append(info, el("span", "price", "$" + s.price));
+        row.append(s.paid
+          ? el("span", "badge ok", "Has its own PayPal account: agent payments go to Fair News")
+          : el("span", "badge warn", "No PayPal account connected: demo payments stay with the platform"));
+        if (paywallUrl) {
+          const a = el("a", null, "Open as a human reader →");
+          a.href = `${paywallUrl}/${s.id}/article`;
+          a.target = "_blank";
+          a.rel = "noopener";
+          row.append(a);
+        }
+        box.append(row);
+      }
+    }
+    render();
+
+    async function loadListings() {
+      const box = document.getElementById("listings");
+      box.textContent = "";
+      let items = [];
+      try { items = await (await fetch("/api/listings")).json(); } catch {}
+      if (!items.length) { box.append(el("div", "empty", "No creator listings yet.")); return; }
+      for (const it of items) {
+        const row = el("div", "site");
+        const info = el("div");
+        info.append(el("div", "site-name", it.name), el("div", "site-desc", it.mine ? "Added by you" : "Added by a creator"));
+        row.append(info, el("span", "price", "$" + (it.priceCents / 100).toFixed(2)));
+        row.append(el("span", "badge warn", "Saved: not yet sold to agents"));
+        if (/^https?:\/\//.test(it.url)) {
+          const a = el("a", null, it.url);
+          a.href = it.url; a.target = "_blank"; a.rel = "noopener noreferrer nofollow";
+          row.append(a);
+        }
+        if (it.mine) {
+          const del = el("button", "del", "Remove");
+          del.type = "button";
+          del.onclick = async () => { await fetch("/api/listings/" + encodeURIComponent(it.id), { method: "DELETE" }); loadListings(); };
+          row.append(del);
+        }
+        box.append(row);
+      }
+    }
+
+    async function setupForm() {
+      let connected = false;
+      try { connected = (await (await fetch("/api/me")).json()).connected; } catch {}
+      document.getElementById(connected ? "listForm" : "needConnect").hidden = false;
+    }
+
+    document.getElementById("listForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("fMsg");
+      const btn = document.getElementById("fSubmit");
+      btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving...";
+      try {
+        const res = await fetch("/api/listings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: document.getElementById("fName").value,
+            url: document.getElementById("fUrl").value,
+            price: document.getElementById("fPrice").value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not save");
+        msg.textContent = "Saved. Your listing is below.";
+        e.target.reset();
+        loadListings();
+      } catch (err) {
+        msg.className = "msg bad"; msg.textContent = err.message;
+      }
+      btn.disabled = false;
+    });
+
+    setupForm();
+    loadListings();
+  </script>
+</body>
+</html>

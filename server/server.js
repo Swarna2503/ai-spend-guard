@@ -170,7 +170,7 @@ function agentUser(req) {
 
 /* ---------------- Gate: who is this request from? ---------------- */
 
-const PUBLIC_PATHS = new Set(["/login.html", "/api/vault/start", "/api/vault/return", "/api/logout"]);
+   const PUBLIC_PATHS = new Set(["/login.html", "/publishers.html", "/api/config", "/api/listings", "/api/vault/start", "/api/vault/return", "/api/logout"]);
 
 app.use((req, res, next) => {
   const agentUid = agentUser(req);
@@ -297,6 +297,57 @@ app.post("/api/disconnect", async (req, res) => {
   fs.rmSync(userDir(req.uid), { recursive: true, force: true });
   clearUserCookie(req, res);
   console.log(`USER ${req.uid.slice(0, 8)} disconnected PayPal`);
+  res.json({ ok: true });
+});
+
+/* ---------------- Creator listings (saved for review, not sold to agents yet) ---------------- */
+
+const LISTINGS_PATH = "./data/listings.json";
+const readListings = () => readJSON(LISTINGS_PATH, []);
+
+app.get("/api/listings", (req, res) => {
+  res.json(
+    readListings().map((l) => ({
+      id: l.id, name: l.name, url: l.url, priceCents: l.priceCents, mine: l.uid === req.uid,
+    }))
+  );
+});
+
+app.post("/api/listings", (req, res) => {
+  if (!req.uid || !getVault(req.uid).vaultId) {
+    return res.status(401).json({ error: "Connect your PayPal first" });
+  }
+  const name = String(req.body?.name || "").trim();
+  const url = String(req.body?.url || "").trim();
+  const priceCents = Math.round(Number(req.body?.price) * 100);
+
+  if (!name || name.length > 60) return res.status(400).json({ error: "Site name must be 1 to 60 characters" });
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: "Enter a full article URL (https://...)" }); }
+  if (!["http:", "https:"].includes(parsed.protocol) || url.length > 300) {
+    return res.status(400).json({ error: "Enter a full article URL (https://...)" });
+  }
+  if (!Number.isInteger(priceCents) || priceCents < 1 || priceCents > 10000) {
+    return res.status(400).json({ error: "Price must be between $0.01 and $100" });
+  }
+
+  const listings = readListings();
+  if (listings.filter((l) => l.uid === req.uid).length >= 5) {
+    return res.status(400).json({ error: "Demo limit: 5 listings per account" });
+  }
+  if (listings.length >= 200) return res.status(400).json({ error: "Listings are full for this demo" });
+
+  listings.push({ id: crypto.randomUUID(), uid: req.uid, name, url, priceCents, createdAt: new Date().toISOString() });
+  writeJSON(LISTINGS_PATH, listings);
+  res.json({ ok: true });
+});
+
+app.delete("/api/listings/:id", (req, res) => {
+  if (!req.uid) return res.status(401).json({ error: "Connect your PayPal first" });
+  const listings = readListings();
+  const kept = listings.filter((l) => !(l.id === req.params.id && l.uid === req.uid));
+  if (kept.length === listings.length) return res.status(404).json({ error: "Not found" });
+  writeJSON(LISTINGS_PATH, kept);
   res.json({ ok: true });
 });
 
