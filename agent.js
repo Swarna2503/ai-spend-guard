@@ -4,6 +4,7 @@ const PAYWALL = "http://localhost:9000";
 const GUARD = "http://localhost:8888";
 const TASK = "Research how AI agents pay for online content";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const AGENT_ID = "ai-spend-guard-research-agent/1.0";
 
 async function waitForDecision(requestId) {
   for (let i = 0; i < 60; i++) {
@@ -20,8 +21,7 @@ async function waitForDecision(requestId) {
 async function getArticle(site) {
   const url = `${PAYWALL}/${site}/article`;
   console.log(`\n=== Agent wants: ${url}`);
-
-  let res = await fetch(url);
+  let res = await fetch(url, { headers: { "X-Agent": AGENT_ID } });
   if (res.status !== 402) {
     console.log("No payment needed:", await res.json());
     return;
@@ -65,7 +65,7 @@ async function getArticle(site) {
     return;
   }
 
-  res = await fetch(url, { headers: { "X-Payment-Proof": captureId } });
+    res = await fetch(url, { headers: { "X-Agent": AGENT_ID, "X-Payment-Proof": captureId } });
   const body = await res.json();
   console.log(`Paywall answered ${res.status}:`, body);
 }
