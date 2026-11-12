@@ -32,16 +32,21 @@ const sites = {
 };
 
 const USED_PATH = "./data/used-proofs.json";
+const RECEIPT_MS = 24 * 60 * 60 * 1000; // a paid proof works again for the same site for 24 hours
 fs.mkdirSync("./data", { recursive: true });
-let usedProofs;
+let usedProofs; // captureId -> { site, firstUsedAt }
 try {
-  usedProofs = new Set(JSON.parse(fs.readFileSync(USED_PATH, "utf8")));
+  const saved = JSON.parse(fs.readFileSync(USED_PATH, "utf8"));
+  // Old format was a plain list of IDs: keep them blocked (treated as expired).
+  usedProofs = Array.isArray(saved)
+    ? new Map(saved.map((id) => [id, { site: null, firstUsedAt: 0 }]))
+    : new Map(Object.entries(saved));
 } catch {
-  usedProofs = new Set();
+  usedProofs = new Map();
 }
-function markUsed(captureId) {
-  usedProofs.add(captureId);
-  fs.writeFileSync(USED_PATH, JSON.stringify([...usedProofs]));
+function markUsed(captureId, siteKey) {
+  usedProofs.set(captureId, { site: siteKey, firstUsedAt: Date.now() });
+  fs.writeFileSync(USED_PATH, JSON.stringify(Object.fromEntries(usedProofs)));
 }
 
 async function getAccessToken() {
@@ -60,9 +65,12 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-async function verifyProof(captureId, expectedPrice) {
-  if (usedProofs.has(captureId)) {
-    return { ok: false, reason: "Proof already used" };
+async function verifyProof(captureId, siteKey, expectedPrice) {
+  const prior = usedProofs.get(captureId);
+  if (prior) {
+    if (prior.site !== siteKey) return { ok: false, reason: "Proof already used" };
+    if (Date.now() - prior.firstUsedAt > RECEIPT_MS) return { ok: false, reason: "Receipt expired (24 hours)" };
+    return { ok: true, receipt: true };
   }
   const token = await getAccessToken();
   const response = await fetch(
@@ -82,7 +90,7 @@ async function verifyProof(captureId, expectedPrice) {
   if (capture.amount.value !== expectedPrice) {
     return { ok: false, reason: `Paid ${capture.amount.value}, price is ${expectedPrice}` };
   }
-  markUsed(captureId);
+  markUsed(captureId, siteKey);
   return { ok: true };
 }
 
@@ -157,15 +165,16 @@ app.get("/:site/article", async (req, res) => {
   }
 
   try {
-    const result = await verifyProof(proof, site.price);
+    const result = await verifyProof(proof, siteKey, site.price);
     if (!result.ok) {
       console.log(`Rejected proof ${proof}: ${result.reason}`);
       return res.status(402).json({ error: "Invalid payment proof", reason: result.reason, offer });
     }
-    console.log(`Accepted proof ${proof} for ${siteKey}`);
+    console.log(`Accepted proof ${proof} for ${siteKey}${result.receipt ? " (receipt reused)" : ""}`);
     res.json({
       content: `Full article from ${site.seller}. Thanks for paying!`,
       paidWith: proof,
+      ...(result.receipt ? { receipt: "Already paid within 24 hours" } : {}),
     });
   } catch (err) {
     console.error("Verification error:", err);

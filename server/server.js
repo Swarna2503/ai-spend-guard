@@ -473,6 +473,14 @@ Respond with JSON only: {"worthIt": true or false, "reason": "one short sentence
 
 /* ---------------- The guard ---------------- */
 
+// Already paid this site in the last 24 hours? Reuse that payment instead of paying again.
+function findReceipt(uid, site) {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  return readLog(uid)
+    .reverse()
+    .find((e) => e.decision === "paid" && e.site === site && e.captureId && Date.parse(e.time) > dayAgo);
+}
+
 function createPending(uid, entry, reason) {
   const request = { id: `req-${crypto.randomUUID()}`, ...entry, reason, status: "pending" };
   const pending = readPending(uid);
@@ -503,6 +511,14 @@ app.post("/api/pay", async (req, res) => {
     price: (priceCents / 100).toFixed(2),
     priceCents,
   };
+
+  const receipt = findReceipt(uid, site);
+  if (receipt) {
+    const reason = `Already bought at ${receipt.time.slice(11, 16)} UTC; reused that payment, nothing charged`;
+    appendLog(uid, { ...entry, decision: "already owned", reason, captureId: receipt.captureId });
+    console.log(`OWNED ${site}: reusing ${receipt.captureId}`);
+    return res.json({ decision: "owned", captureId: receipt.captureId, reason });
+  }
 
   const check = checkRules(uid, { site, priceCents });
   if (!check.allowed) {

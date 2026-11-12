@@ -204,7 +204,7 @@
       greedy: { name: "Greedy News", price: "$50.00", meta: "Overpriced" },
     };
     const siteName = (key) => (SITES[key] ? SITES[key].name : key);
-    const LABELS = { "paid": "Paid", "skipped by AI": "Skipped by AI", "needs approval": "Needs approval", "denied": "Denied", "blocked": "Blocked", "failed": "Failed" };
+    const LABELS = { "paid": "Paid", "already owned": "Already owned", "skipped by AI": "Skipped by AI", "needs approval": "Needs approval", "denied": "Denied", "blocked": "Blocked", "failed": "Failed" };
     let limitsLoaded = false;
 
     function el(tag, className, text) {
@@ -224,7 +224,7 @@
     }
 
     function kind(decision) {
-      if (decision === "paid") return { css: "paid", icon: "✓", badge: "b-paid" };
+               if (decision === "paid" || decision === "already owned") return { css: "paid", icon: "✓", badge: "b-paid" };
       if (decision === "skipped by AI") return { css: "skip", icon: "AI", badge: "b-skip" };
       if (decision === "needs approval") return { css: "wait", icon: "!", badge: "b-wait" };
       return { css: "bad", icon: "✕", badge: "b-bad" };
@@ -237,6 +237,7 @@
         const sent = e.payoutNote === "Sent to site" ? ` · money sent to ${name}'s own PayPal` : "";
         return { title: `Paid ${name} $${e.price}`, detail: how + sent };
       }
+               if (e.decision === "already owned") return { title: `Already own ${name}: nothing charged`, detail: e.reason };
       if (e.decision === "skipped by AI") return { title: `Skipped ${name}`, detail: `AI: ${e.reason}` };
       if (e.decision === "needs approval") return { title: `${name} wants $${e.price}: waiting for you`, detail: e.reason };
       if (e.decision === "denied") return { title: `You denied ${name}`, detail: "Nothing was paid" };

@@ -9,7 +9,7 @@ const AGENT_ID = "ai-spend-guard-research-agent/1.0";
 
 async function waitForDecision(requestId) {
   for (let i = 0; i < 60; i++) {
-        const res = await fetch(`${GUARD}/api/requests/${requestId}`, { headers: GUARD_HEADERS });
+    const res = await fetch(`${GUARD}/api/requests/${requestId}`, { headers: GUARD_HEADERS });
     const request = await res.json();
     if (request.status !== "pending" && request.status !== "charging") {
       return request;
@@ -23,7 +23,7 @@ async function getArticle(site) {
   const url = `${PAYWALL}/${site}/article`;
   console.log(`\n=== Agent wants: ${url}`);
   let res = await fetch(url, { headers: { "X-Agent": AGENT_ID } });
-    if (res.status !== 402) {
+  if (res.status !== 402) {
     const body = await res.text();
     console.log(`Unexpected answer from the site (HTTP ${res.status}):`, body.slice(0, 300));
     return;
@@ -34,7 +34,7 @@ async function getArticle(site) {
 
   const payRes = await fetch(`${GUARD}/api/pay`, {
     method: "POST",
-        headers: { "Content-Type": "application/json", ...GUARD_HEADERS },
+    headers: { "Content-Type": "application/json", ...GUARD_HEADERS },
     body: JSON.stringify({
       site: offer.site,
       price: offer.price,
@@ -48,6 +48,10 @@ async function getArticle(site) {
   if (pay.decision === "paid") {
     captureId = pay.captureId;
     console.log(`Guard paid automatically. AI said: ${pay.aiReason}`);
+    console.log(`Capture ID: ${captureId}`);
+  } else if (pay.decision === "owned") {
+    captureId = pay.captureId;
+    console.log(`Already bought in the last 24 hours: reusing that payment, nothing charged.`);
     console.log(`Capture ID: ${captureId}`);
   } else if (pay.decision === "skipped") {
     console.log(`AI advisor skipped it: ${pay.reason}`);
@@ -67,7 +71,7 @@ async function getArticle(site) {
     return;
   }
 
-    res = await fetch(url, { headers: { "X-Agent": AGENT_ID, "X-Payment-Proof": captureId } });
+  res = await fetch(url, { headers: { "X-Agent": AGENT_ID, "X-Payment-Proof": captureId } });
   const body = await res.json();
   console.log(`Paywall answered ${res.status}:`, body);
 }
