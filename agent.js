@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-
+const GUARD_HEADERS = { "X-Agent-Token": process.env.AGENT_TOKEN || "" };
 const PAYWALL = process.env.PAYWALL_URL || "http://localhost:9000";
 const GUARD = process.env.GUARD_URL || "http://localhost:8888";
 const TASK = process.env.AGENT_TASK || "Research how AI agents pay for online content";
@@ -9,7 +9,7 @@ const AGENT_ID = "ai-spend-guard-research-agent/1.0";
 
 async function waitForDecision(requestId) {
   for (let i = 0; i < 60; i++) {
-    const res = await fetch(`${GUARD}/api/requests/${requestId}`);
+        const res = await fetch(`${GUARD}/api/requests/${requestId}`, { headers: GUARD_HEADERS });
     const request = await res.json();
     if (request.status !== "pending" && request.status !== "charging") {
       return request;
@@ -33,7 +33,7 @@ async function getArticle(site) {
 
   const payRes = await fetch(`${GUARD}/api/pay`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...GUARD_HEADERS },
     body: JSON.stringify({
       site: offer.site,
       price: offer.price,

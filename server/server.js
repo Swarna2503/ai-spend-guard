@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { spawn } from "child_process";
 import fs from "fs";
 import express from "express";
@@ -8,6 +9,28 @@ const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PORT = 8888 } = process.env;
 const base = "https://api-m.sandbox.paypal.com";
 const app = express();
 fs.mkdirSync("./data", { recursive: true });
+
+const OWNER_USER = process.env.OWNER_USER || "owner";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD;
+const AGENT_TOKEN = crypto.randomUUID();
+
+function isAgentRequest(req) {
+  const agentRoute =
+    (req.method === "POST" && req.path === "/api/pay") ||
+    (req.method === "GET" && /^\/api\/requests\/[^/]+$/.test(req.path));
+  return agentRoute && req.get("X-Agent-Token") === AGENT_TOKEN;
+}
+
+app.use((req, res, next) => {
+  if (!OWNER_PASSWORD || isAgentRequest(req)) return next();
+  const [scheme, encoded] = (req.get("Authorization") || "").split(" ");
+  if (scheme === "Basic" && encoded) {
+    const [user, ...rest] = Buffer.from(encoded, "base64").toString().split(":");
+    if (user === OWNER_USER && rest.join(":") === OWNER_PASSWORD) return next();
+  }
+  res.set("WWW-Authenticate", 'Basic realm="AI Spending Guard owner"');
+  res.status(401).send("Owner login required");
+});
 
 app.set("view engine", "ejs");
 app.set("views", "./server/views");
@@ -555,7 +578,7 @@ app.post("/api/run-agent", (req, res) => {
   agentRun = { running: true, output: "", startedAt: new Date().toISOString() };
 
   const child = spawn(process.execPath, ["agent.js"], {
-    env: { PATH: process.env.PATH, AGENT_TASK: task, GUARD_URL, PAYWALL_URL },
+        env: { PATH: process.env.PATH, AGENT_TASK: task, GUARD_URL, PAYWALL_URL, AGENT_TOKEN },
   });
   const append = (chunk) => {
     agentRun.output = (agentRun.output + chunk.toString()).slice(-20000);
