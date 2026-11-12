@@ -7,6 +7,7 @@ import "dotenv/config";
 const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PORT = 8888 } = process.env;
 const base = "https://api-m.sandbox.paypal.com";
 const app = express();
+fs.mkdirSync("./data", { recursive: true });
 
 app.set("view engine", "ejs");
 app.set("views", "./server/views");

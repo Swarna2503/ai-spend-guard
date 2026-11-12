@@ -4,7 +4,7 @@ import "dotenv/config";
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
-const PORT = 9000;
+const PORT = process.env.PORT || 9000;
 const base = "https://api-m.sandbox.paypal.com";
 
 // Cloudflare Turnstile. Defaults are Cloudflare's official test keys:
