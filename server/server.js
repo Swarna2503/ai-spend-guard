@@ -264,6 +264,13 @@ const RULES = {
   approvedSites: ["fair", "greedy", "gossip"],
 };
 
+const RULES_PATH = "./data/rules.json";
+try {
+  const saved = JSON.parse(fs.readFileSync(RULES_PATH, "utf8"));
+  if (Number.isInteger(saved.maxPerItemCents)) RULES.maxPerItemCents = saved.maxPerItemCents;
+  if (Number.isInteger(saved.dailyBudgetCents)) RULES.dailyBudgetCents = saved.dailyBudgetCents;
+} catch {}
+
 function readLog() {
   try {
     return JSON.parse(fs.readFileSync(LOG_PATH, "utf8"));
@@ -630,6 +637,25 @@ app.post("/api/login", (req, res) => {
 app.post("/api/logout", (req, res) => {
   res.set("Set-Cookie", "owner_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
   res.json({ ok: true });
+});
+
+app.post("/api/rules", (req, res) => {
+  const perItem = Math.round(Number(req.body?.maxPerItem) * 100);
+  const daily = Math.round(Number(req.body?.dailyBudget) * 100);
+  if (!Number.isFinite(perItem) || !Number.isFinite(daily) || perItem < 1 || daily < 1) {
+    return res.status(400).json({ error: "Limits must be at least $0.01" });
+  }
+  if (perItem > 10000 || daily > 100000) {
+    return res.status(400).json({ error: "Demo maximum: $100 per item, $1,000 per day" });
+  }
+  if (perItem > daily) {
+    return res.status(400).json({ error: "The per-item limit can't be higher than the daily budget" });
+  }
+  RULES.maxPerItemCents = perItem;
+  RULES.dailyBudgetCents = daily;
+  fs.writeFileSync(RULES_PATH, JSON.stringify({ maxPerItemCents: perItem, dailyBudgetCents: daily }, null, 2));
+  console.log(`LIMITS updated: ${dollars(perItem)} per item, ${dollars(daily)} per day`);
+  res.json({ ok: true, rules: RULES });
 });
 
 app.listen(PORT, () => {

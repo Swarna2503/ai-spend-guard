@@ -109,6 +109,9 @@
       .hero h1 { font-size: 24px; }
       .task-row { flex-direction: column; }
     }
+    .limits { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .limits label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .limits input { width: 120px; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -130,7 +133,7 @@
       <p>News sites charge AI agents a few cents per article. This guard lets your agent pay for small, useful things on its own, and asks you before anything risky. Websites get paid; people still read for free.</p>
       <div class="steps">
         <div class="step"><div class="n">1</div><b>The agent finds a paywall</b><p>Sites answer AI agents with a price (HTTP 402). People pass a quick human check and read free.</p></div>
-        <div class="step"><div class="n">2</div><b>The guard decides</b><p>Approved sites only, at most $0.10 per item and $2 per day. The AI can veto anything that doesn't help the task. Everything the rules block waits for you.</p></div>
+        <div class="step"><div class="n">2</div><b>The guard decides</b><p>Approved sites only, within your per-item and daily limits. The AI can veto anything that doesn't help the task. Everything the rules block waits for you.</p></div>
         <div class="step"><div class="n">3</div><b>PayPal pays the site</b><p>Your saved PayPal is charged with no popup, Fair News receives the money in its own account, and the site checks the payment before unlocking.</p></div>
       </div>
     </section>
@@ -152,6 +155,16 @@
       </section>
 
       <div class="col">
+        <section class="card">
+          <h2>Your spending limits</h2>
+          <p class="sub">The agent pays on its own only within these limits. Anything above waits for you.</p>
+          <div class="limits">
+            <label>Per item ($)<input id="limitItem" type="number" min="0.01" step="0.01"></label>
+            <label>Per day ($)<input id="limitDay" type="number" min="0.01" step="0.01"></label>
+            <button id="saveLimits" class="btn primary small">Save limits</button>
+          </div>
+          <div id="limitsMsg" class="status-line"></div>
+        </section>
         <section class="card">
           <h2>Waiting for your approval</h2>
           <p class="sub">Anything the rules block lands here. Approve pays from your saved PayPal; deny moves nothing.</p>
@@ -183,6 +196,7 @@
   </div>
 
   <script>
+    let limitsLoaded = false;
     const $ = (id) => document.getElementById(id);
     const dollars = (cents) => `$${(cents / 100).toFixed(2)}`;
     const SITES = {
@@ -347,6 +361,12 @@
         $("spentText").textContent = `${dollars(spent)} of ${dollars(budget)}`;
         $("barFill").style.width = `${Math.min(100, (spent / budget) * 100)}%`;
 
+                if (!limitsLoaded) {
+          $("limitItem").value = (log.data.rules.maxPerItemCents / 100).toFixed(2);
+          $("limitDay").value = (log.data.rules.dailyBudgetCents / 100).toFixed(2);
+          limitsLoaded = true;
+        }
+        
         const pending = reqs.data.filter((r) => r.status === "pending");
         renderPending(pending);
         renderResults(log.data.entries, run.data);
@@ -386,6 +406,17 @@
     $("logout").onclick = async () => {
       await fetch("/api/logout", { method: "POST" });
       location.href = "/login.html";
+    };
+
+    $("saveLimits").onclick = async () => {
+      $("limitsMsg").textContent = "Saving...";
+      const { status, data } = await getJSON("/api/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxPerItem: $("limitItem").value, dailyBudget: $("limitDay").value }),
+      });
+      $("limitsMsg").textContent = status === 200 ? "Saved. The agent uses these limits from its next purchase." : data.error;
+      refresh();
     };
 
     loadConfig();

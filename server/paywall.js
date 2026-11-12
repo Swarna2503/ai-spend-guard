@@ -1,3 +1,4 @@
+import fs from "fs";
 import express from "express";
 import fetch from "node-fetch";
 import "dotenv/config";
@@ -30,7 +31,18 @@ const sites = {
   },
 };
 
-const usedProofs = new Set();
+const USED_PATH = "./data/used-proofs.json";
+fs.mkdirSync("./data", { recursive: true });
+let usedProofs;
+try {
+  usedProofs = new Set(JSON.parse(fs.readFileSync(USED_PATH, "utf8")));
+} catch {
+  usedProofs = new Set();
+}
+function markUsed(captureId) {
+  usedProofs.add(captureId);
+  fs.writeFileSync(USED_PATH, JSON.stringify([...usedProofs]));
+}
 
 async function getAccessToken() {
   const auth = Buffer.from(
@@ -70,7 +82,7 @@ async function verifyProof(captureId, expectedPrice) {
   if (capture.amount.value !== expectedPrice) {
     return { ok: false, reason: `Paid ${capture.amount.value}, price is ${expectedPrice}` };
   }
-  usedProofs.add(captureId);
+  markUsed(captureId);
   return { ok: true };
 }
 
